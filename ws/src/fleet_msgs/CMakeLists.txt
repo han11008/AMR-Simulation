@@ -13,8 +13,8 @@ find_package(geometry_msgs REQUIRED)
 
 ### set custom communication ###
 set(msg_files
-"msg/TaskAssign.msg"
-"msg/TaskStatus.msg"
+"msg/TaskArrange.msg"
+"msg/BotStatus.msg"
 )
 ################################
 

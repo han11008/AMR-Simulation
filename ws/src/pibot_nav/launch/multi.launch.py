@@ -111,9 +111,6 @@ def generate_launch_description():
 				package = pkg_name,
 				executable = 'fleet_map_server',
 				name = 'fleet_map_server',
-				parameters = [
-					{'keepout_radius': 0.4}
-				],
 				namespace = bot_name,
 				remappings = remappings,
 				output = 'screen'
@@ -254,22 +251,37 @@ def generate_launch_description():
 					parameters = [cd_param_path],
 					remappings = remappings,
 					output = 'screen'
-				),
-
-				Node(
-					package = pkg_name,
-					executable = 'collision_avoidance',
-					name = 'collision_avoidance',
-					emulate_tty = True,
-					respawn = True,
-					respawn_delay = 2.0,
-					remappings = remappings,
-					output = 'screen'
 				)
 			]
 		)
 
 		ld.add_action(collision_avoidance_group)
+	# =============================================================
+
+	# ===================== fleet management ======================
+	ld.add_action(
+		Node(
+			package = pkg_name,
+			executable = 'task_server',
+			name = 'task_server',
+			output = 'screen'
+		)
+	)
+
+	for bot_name in ROBOTS.keys():
+		ld.add_action(
+			Node(
+				package = pkg_name,
+				executable = 'task_client',
+				name = 'task_client',
+				parameters = [
+					{'keepout_radius': 1.5}
+				],
+				namespace = bot_name,
+				remappings = remappings,
+				output = 'screen'
+			)
+		)
 	# =============================================================
 
 	# =========================== RViz ============================

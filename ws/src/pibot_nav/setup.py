@@ -37,7 +37,9 @@ setup(
 		f'odom_footprint_tf = {package_name}.odom_footprint_tf_pub:main',
 		f'navigator_client = {package_name}.navigator_client:main',
 		f'collision_avoidance = {package_name}.collision_avoidance:main',
-		f'fleet_map_server = {package_name}.fleet_map_server:main'
+		f'fleet_map_server = {package_name}.fleet_map_server:main',
+		f'task_server = {package_name}.task_server:main',
+		f'task_client = {package_name}.task_client:main',
         ],
     },
 )

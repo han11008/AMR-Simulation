@@ -17,9 +17,6 @@ class FleetMapServer(Node):
 	def __init__(self):
 		super().__init__('fleet_map_server')
 
-		self.declare_parameter('keepout_radius', -1.0)
-		keepout_radius = self.get_parameter('keepout_radius').get_parameter_value().double_value
-
 		main_cbg = MutuallyExclusiveCallbackGroup()
 		self.map_msg = OccupancyGrid()
 		self.map_msg.header.frame_id = 'map'
@@ -36,7 +33,7 @@ class FleetMapServer(Node):
 		self.fleet_members_sub = self.create_subscription(String, '/fleet_members', self.getFleetMembers, self.fleet_members_qos, callback_group=main_cbg)
 
 		self.self_declaration_msg = String()
-		self.self_declaration_msg.data = f'{self.bot_name}#{keepout_radius}'
+		self.self_declaration_msg.data = self.bot_name
 		self.self_declaration_pub = self.create_publisher(String, '/fleet_members', self.fleet_members_qos, callback_group=main_cbg)
 		self.self_declaration_pub.publish(self.self_declaration_msg)
 
@@ -63,16 +60,13 @@ class FleetMapServer(Node):
 			self.fleet_map_pub.publish(self.map_msg)
 
 	def getFleetMembers(self, msg):
-		member_name, keepout_radius = msg.data.split('#')
+		member_name = msg.data
 		if member_name != self.bot_name and member_name not in self.fleet_members_footprint.keys():
 			self.fleet_members_footprint[member_name] = {
 				'footprint': [],
 				'sub': self.create_subscription(PolygonStamped, f'/{member_name}/global_costmap/published_footprint',
 					lambda footprint_msg: self.getFootprint(footprint_msg, member_name), 1, callback_group=self.sub_footprint_cbg)
 			}
-		elif keepout_radius == '-1.0' and self.fleet_members_footprint.get(member_name) is not None:
-			self.destroy_subscription(self.fleet_members_footprint[member_name]['sub'])
-			del self.fleet_members_footprint[member_name]
 
 	def getFootprint(self, msg, member):
 		if self.origin_point is not None:
