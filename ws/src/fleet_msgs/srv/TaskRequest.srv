@@ -1,0 +1,8 @@
+# request
+string task_uuid
+string bot_name
+bool cancel
+geometry_msgs/Pose goal
+---
+# response
+bool accept

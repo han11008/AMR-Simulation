@@ -6,7 +6,7 @@ from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
 from geometry_msgs.msg import Twist
 from nav2_msgs.msg import CollisionDetectorState
 from rclpy.action.client import ActionClient
-from action_msgs.msg import GoalStatusArray, GoalStatus
+from action_msgs.msg import GoalStatus
 from action_msgs.srv import CancelGoal
 from nav2_msgs.action import NavigateToPose
 from geometry_msgs.msg import PoseStamped, Vector3
@@ -58,10 +58,8 @@ class TaskClient(Node):
 		nav_client_cbg = MutuallyExclusiveCallbackGroup()
 		qos = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
 		self.goal_handle = None
-		self.nav_end_type = BotStatus.STATUS_SUCCEEDED
 		self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose', callback_group=nav_client_cbg, feedback_sub_qos_profile=qos)
 		self.nav_cancel_requester = self.create_client(CancelGoal, 'navigate_to_pose/_action/cancel_goal', callback_group=nav_client_cbg)
-		self.bt_navigator_status = self.create_subscription(GoalStatusArray, 'navigate_to_pose/_action/status', self.assistGetStatus, 1, callback_group=nav_client_cbg)
 
 		task_cbg = MutuallyExclusiveCallbackGroup()
 		transient_qos = QoSProfile(depth=10, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
@@ -159,12 +157,6 @@ class TaskClient(Node):
 		twist_msg.angular.z = self.twist_msg_val[1]
 		self.motor_cmd_pub.publish(twist_msg)
 
-	def assistGetStatus(self, msg):
-		if msg.status_list[-1].status == GoalStatus.STATUS_CANCELING:
-			self.nav_end_type = BotStatus.STATUS_CANCELLED
-		elif msg.status_list[-1].status == GoalStatus.STATUS_ABORTED:
-			self.nav_end_type = BotStatus.STATUS_REJECTED
-
 	def _publishStatus(self):
 		self.status_report_pub.publish(self.status_report)
 
@@ -180,7 +172,6 @@ class TaskClient(Node):
 						return
 
 				self.task = msg
-				self.nav_end_type = BotStatus.STATUS_SUCCEEDED
 
 				nav_req = NavigateToPose.Goal()
 				nav_req.pose.header.frame_id = 'map'
@@ -219,11 +210,18 @@ class TaskClient(Node):
 			self._publishStatus()
 
 	def _finishTask(self, future):
-		self.status_report.status = self.nav_end_type
+		if future.result().status == GoalStatus.STATUS_SUCCEEDED:
+			self.status_report.status = BotStatus.STATUS_SUCCEEDED
+			self.get_logger().info(f'Task succeeded')
+		elif future.result().status == GoalStatus.STATUS_CANCELED:
+			self.status_report.status = BotStatus.STATUS_CANCELLED
+			self.get_logger().info(f'Task cancelled')
+		elif future.result().status == GoalStatus.STATUS_ABORTED or future.result().status == GoalStatus.STATUS_UNKNOWN:
+			self.status_report.status = BotStatus.STATUS_REJECTED
+			self.get_logger().info(f'Task aborted')
 		self._publishStatus()
 		self.task = None
 		self.goal_handle = None
-		self.get_logger().info(f'Task ended')
 
 	def req_tf(self):
 		try:
