@@ -1,0 +1,4 @@
+fleet_msgs/BotPose bot_pose
+fleet_msgs/TaskStatus task_status
+float64 keepout_radius
+float64 distance_remaining

@@ -9,10 +9,9 @@ from rclpy.action.client import ActionClient
 from action_msgs.msg import GoalStatus
 from action_msgs.srv import CancelGoal
 from nav2_msgs.action import NavigateToPose
-from geometry_msgs.msg import PoseStamped, Vector3
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
-from fleet_msgs.msg import TaskArrange, BotStatus
+from fleet_msgs.msg import TaskArrange, TaskStatus, BotPose, BotReport
 from time import time, sleep
 
 CD_POLY = {
@@ -65,12 +64,16 @@ class TaskClient(Node):
 		transient_qos = QoSProfile(depth=10, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
 		self.task = None
 		self.task_sub = self.create_subscription(TaskArrange, '/fleet_task', self.getTask, transient_qos, callback_group=task_cbg)
-		self.status_report = BotStatus()
-		self.status_report.bot_name = self.bot_name
+		self.status_report = BotReport()
+		self.status_report.bot_pose.bot_name = self.bot_name
+		self.status_report.task_status.status = TaskStatus.TASK_SUCCEEDED
 		self.status_report.keepout_radius = keepout_radius
-		self.status_report_pub = self.create_publisher(BotStatus, '/fleet_status', transient_qos, callback_group=task_cbg)
+		self.status_report_pub = self.create_publisher(BotReport, '/fleet_status', transient_qos, callback_group=task_cbg)
 
 		tf_cbg = MutuallyExclusiveCallbackGroup()
+		self.pose_msg = BotPose()
+		self.pose_msg.bot_name = self.bot_name
+		self.pose_pub = self.create_publisher(BotPose, '/fleet_pose', 1, callback_group=tf_cbg)
 		self.announced = False
 		self.tf_buffer = Buffer()
 		tf_trans = TransformListener(self.tf_buffer, self)
@@ -161,16 +164,18 @@ class TaskClient(Node):
 		self.status_report_pub.publish(self.status_report)
 
 	def getTask(self, msg):
-		if msg.bot_name == self.bot_name and msg.task_cmd != TaskArrange.TASK_FINISH:
-			if self.task is None and msg.task_cmd == TaskArrange.TASK_EXEC:
+		if msg.bot_name == self.bot_name and msg.task_cmd != TaskArrange.CMD_FINISH:
+			self.get_logger().info(f'@debug recv task cmd: {msg.task_cmd}, already has task {self.task is not None}')
+			if self.task is None and msg.task_cmd == TaskArrange.CMD_EXECUTE:
 				count = 0
 				while not self.nav_client.wait_for_server(timeout_sec=1.5):
 					count += 1
 					if count > 5:
-						self.status_report.status = BotStatus.STATUS_REJECTED
+						self.status_report.task_status.status = TaskStatus.TASK_ABORTED
 						self._publishStatus()
 						return
 
+				self.status_report.task_status.status = TaskStatus.TASK_EXECUTING
 				self.task = msg
 
 				nav_req = NavigateToPose.Goal()
@@ -180,11 +185,11 @@ class TaskClient(Node):
 				send_future.add_done_callback(self._sendGoalResult)
 				self.get_logger().info(f'Navigating to {msg.goal.position.x, msg.goal.position.y}')
 			else:
-				if msg.task_cmd == TaskArrange.TASK_EXEC:
+				if msg.task_cmd == TaskArrange.CMD_EXECUTE:
 					self.task_paused = False
-				elif msg.task_cmd == TaskArrange.TASK_PAUSE:
+				elif msg.task_cmd == TaskArrange.CMD_PAUSE:
 					self.task_paused = True
-				elif msg.task_cmd == TaskArrange.TASK_CANCEL:
+				elif msg.task_cmd == TaskArrange.CMD_CANCEL:
 					if self.goal_handle is not None:
 						count = 0
 						while not self.nav_cancel_requester.wait_for_service(timeout_sec=1.5):
@@ -195,29 +200,31 @@ class TaskClient(Node):
 						self.get_logger().info(f'Cancelling the task to {self.task.goal.position.x, self.task.goal.position.y}')
 
 	def _feedbackCallback(self, msg):
-		self.status_report.distance_remain = msg.feedback.distance_remaining
+		self.status_report.distance_remaining = msg.feedback.distance_remaining
 		self._publishStatus()
 
 	def _sendGoalResult(self, future):
 		request_permission = future.result()
 		if request_permission.accepted:
-			self.status_report.status = BotStatus.STATUS_EXECUTING
+			self.status_report.task_status.status = TaskStatus.TASK_EXECUTING
 			self._publishStatus()
 			self.goal_handle = request_permission.get_result_async()
 			self.goal_handle.add_done_callback(self._finishTask)
+			self.get_logger().info(f'@debug [ _sendGoalResult ] task to {self.task.goal.position} accept')
 		else:
-			self.status_report.status = BotStatus.STATUS_REJECTED
+			self.status_report.task_status.status = TaskStatus.TASK_ABORTED
 			self._publishStatus()
 
 	def _finishTask(self, future):
+		self.get_logger().info(f'@debug [ _finishTask ] task to {self.task.goal.position} end')
 		if future.result().status == GoalStatus.STATUS_SUCCEEDED:
-			self.status_report.status = BotStatus.STATUS_SUCCEEDED
+			self.status_report.task_status.status = TaskStatus.TASK_SUCCEEDED
 			self.get_logger().info(f'Task succeeded')
 		elif future.result().status == GoalStatus.STATUS_CANCELED:
-			self.status_report.status = BotStatus.STATUS_CANCELLED
+			self.status_report.task_status.status = TaskStatus.TASK_CANCELLED
 			self.get_logger().info(f'Task cancelled')
 		elif future.result().status == GoalStatus.STATUS_ABORTED or future.result().status == GoalStatus.STATUS_UNKNOWN:
-			self.status_report.status = BotStatus.STATUS_REJECTED
+			self.status_report.task_status.status = TaskStatus.TASK_ABORTED
 			self.get_logger().info(f'Task aborted')
 		self._publishStatus()
 		self.task = None
@@ -226,11 +233,22 @@ class TaskClient(Node):
 	def req_tf(self):
 		try:
 			tf = self.tf_buffer.lookup_transform('map', 'base_footprint', rclpy.time.Time())
-			self.status_report.current_pos.x = tf.transform.translation.x
-			self.status_report.current_pos.y = tf.transform.translation.y
+			prev_x = self.pose_msg.current_pose.position.x
+			prev_y = self.pose_msg.current_pose.position.y
+
+			self.pose_msg.current_pose.position.x = tf.transform.translation.x
+			self.pose_msg.current_pose.position.y = tf.transform.translation.y
+			self.pose_msg.current_pose.orientation.z = tf.transform.rotation.z
+			self.pose_msg.current_pose.orientation.w = tf.transform.rotation.w
+
+			self.pose_pub.publish(self.pose_msg)
+
+			self.status_report.bot_pose.current_pose = self.pose_msg.current_pose
 			if not self.announced:
-				self.status_report.status = BotStatus.STATUS_ACTIVE
 				self.announced = True
+				self._publishStatus()
+			elif abs(prev_x - self.pose_msg.current_pose.position.x) > 0.2 or abs(prev_y - self.pose_msg.current_pose.position.y) > 0.2:
+				self.get_logger().info(f'@debug adjust current_pose')
 				self._publishStatus()
 		except:
 			pass

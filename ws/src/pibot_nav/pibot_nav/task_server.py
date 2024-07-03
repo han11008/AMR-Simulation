@@ -4,7 +4,7 @@ from rclpy.clock import Time
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.qos import QoSProfile, QoSDurabilityPolicy
-from fleet_msgs.msg import TaskArrange, BotStatus, TaskResponse
+from fleet_msgs.msg import TaskArrange, TaskStatus, BotReport, TaskResponse
 from fleet_msgs.srv import TaskRequest
 from math import sqrt, inf
 from uuid import uuid1
@@ -24,7 +24,7 @@ class TaskServer(Node):
 		self.srv_server = self.create_service(TaskRequest, '/task_request', self.getTask, callback_group=task_ui_cbg)
 
 		bot_status_cbg = MutuallyExclusiveCallbackGroup()
-		self.task_status_sub = self.create_subscription(BotStatus, '/fleet_status', self.getStatus, transient_qos, callback_group=bot_status_cbg)
+		self.task_status_sub = self.create_subscription(BotReport, '/fleet_status', self.getStatus, transient_qos, callback_group=bot_status_cbg)
 		self.task_response_pub = self.create_publisher(TaskResponse, '/task_response', transient_qos, callback_group=bot_status_cbg)
 
 		task_arrange_cbg = MutuallyExclusiveCallbackGroup()
@@ -33,18 +33,27 @@ class TaskServer(Node):
 
 	def getTask(self, request, response):
 		if request.cancel:
-			if self.fleet_members.get(request.bot_name) is not None:
-				self.fleet_members[request.bot_name]['task'][1].task_cmd = TaskArrange.TASK_CANCEL
+			self.get_logger().info(f'@debug get cancel req {request.task_uuid} {request.bot_name}')
+			# Cancel an executing task
+			if self.fleet_members.get(request.bot_name) is not None and self.fleet_members[request.bot_name]['task'] is not None and self.fleet_members[request.bot_name]['task'][0] == request.task_uuid:
+				self.fleet_members[request.bot_name]['task'][1].task_cmd = TaskArrange.CMD_CANCEL
 				self._publishTask(self.fleet_members[request.bot_name]['task'][1])
 				self.get_logger().info(f'Cancelling the task of {request.bot_name}')
+			# Cancel a task that is still waiting in self.task_pool
+			else:
+				for task in self.task_pool:
+					if task[0] == request.task_uuid:
+						self.task_pool.remove(task)
+						self._publishResponse(task[0], request.bot_name, TaskStatus.TASK_CANCELLED)
+						self.get_logger().info(f'@debug cancel task in pool: {task[0], task[1].bot_name, task[1].goal.position}')
+						break
 		else:
 			new_task = TaskArrange()
-			new_task.bot_name = request.bot_name
-			new_task.task_cmd = TaskArrange.TASK_EXEC
+			new_task.task_cmd = TaskArrange.CMD_EXECUTE
 			new_task.goal = request.goal
 
 			assigned_bot = None
-			request_bot_not_exist = new_task.bot_name not in self.fleet_members.keys()
+			request_bot_not_exist = request.bot_name not in self.fleet_members.keys()
 			if request_bot_not_exist:
 				min_dist = inf
 				x1, y1 = new_task.goal.position.x, new_task.goal.position.y
@@ -52,65 +61,71 @@ class TaskServer(Node):
 					if self.fleet_members[bot]['task'] is None:
 						x2, y2 = self.fleet_members[bot]['pos']
 						dist = sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
+						self.get_logger().info(f'@debug try to find closer AMR: {bot, dist} ( bot: {x2, y2} / goal: {x1, y1} ) (cur_min: {min_dist})')
 						if dist < min_dist:
 							min_dist = dist
 							assigned_bot = bot
-			elif self.fleet_members[new_task.bot_name]['task'] is None:
-				assigned_bot = new_task.bot_name
+			elif self.fleet_members[request.bot_name]['task'] is None:
+				assigned_bot = request.bot_name
 
 			if assigned_bot is None:
 				self.task_pool.append((request.task_uuid, new_task))
-				self.get_logger().info(f'Unable to send {"an AMR" if request_bot_not_exist else new_task.bot_name} to {new_task.goal.position.x, new_task.goal.position.y} now, the task will start when it is available')
+				self.get_logger().info(f'Unable to send {"an AMR" if request_bot_not_exist else request.bot_name} to {new_task.goal.position.x, new_task.goal.position.y} now, the task will start when it is available')
 			else:
 				new_task.bot_name = assigned_bot
 				self.fleet_members[assigned_bot]['task'] = (request.task_uuid, new_task)
 				self._publishTask(self.fleet_members[assigned_bot]['task'][1])
+				self._publishResponse(self.fleet_members[assigned_bot]['task'][0], assigned_bot, TaskStatus.TASK_EXECUTING)
 				self.get_logger().info(f'Arrange {assigned_bot} to {new_task.goal.position.x, new_task.goal.position.y}')
 
 		response.accept = True
 		return response
 
 	def getStatus(self, msg):
-		if self.fleet_members.get(msg.bot_name) is None:
-			if msg.status != BotStatus.STATUS_INACTIVE:
-				self.fleet_members[msg.bot_name] = {
-					'keepout_radius': msg.keepout_radius,
-					'pos': (msg.current_pos.x, msg.current_pos.y),
-					'no_response_count': 0,
-					'task': None,
-					'distance_remain': 0.0
-				}
-				self.get_logger().info(f'Register fleet member {msg.bot_name}')
+		bot = msg.bot_pose.bot_name
+		if self.fleet_members.get(bot) is None:
+			self.fleet_members[bot] = {
+				'keepout_radius': msg.keepout_radius,
+				'pos': (msg.bot_pose.current_pose.position.x, msg.bot_pose.current_pose.position.y),
+				'no_response_count': 0,
+				'task': None,
+				'distance_remaining': 0.0
+			}
+			self.get_logger().info(f'Register fleet member {bot}')
+
 		else:
-			if msg.status == BotStatus.STATUS_INACTIVE:
-				del self.fleet_members[msg.bot_name]
-			else:
-				self.fleet_members[msg.bot_name]['pos'] = (msg.current_pos.x, msg.current_pos.y)
-				if msg.status == BotStatus.STATUS_EXECUTING:
-					self.fleet_members[msg.bot_name]['distance_remain'] = msg.distance_remain
-				elif msg.status in [BotStatus.STATUS_SUCCEEDED, BotStatus.STATUS_CANCELLED, BotStatus.STATUS_REJECTED]:
-					if self.fleet_members[msg.bot_name]['task'] is not None:
-						res_msg = TaskResponse()
-						res_msg.task_uuid = self.fleet_members[msg.bot_name]['task'][0]
-						res_msg.result = msg.status
-						self.task_response_pub.publish(res_msg)
+			self.fleet_members[bot]['pos'] = (msg.bot_pose.current_pose.position.x, msg.bot_pose.current_pose.position.y)
+			if msg.task_status.status == TaskStatus.TASK_EXECUTING:
+				self.fleet_members[bot]['distance_remaining'] = msg.distance_remaining
+			elif self.fleet_members[bot]['task'] is not None:
+					self._publishResponse(self.fleet_members[bot]['task'][0], bot, msg.task_status.status)
 
-						self.fleet_members[msg.bot_name]['task'][1].task_cmd = TaskArrange.TASK_FINISH
-						self._publishTask(self.fleet_members[msg.bot_name]['task'][1])
-						self.fleet_members[msg.bot_name]['task'] = None
+					self.fleet_members[bot]['task'][1].task_cmd = TaskArrange.CMD_FINISH
+					self._publishTask(self.fleet_members[bot]['task'][1])
+					self.fleet_members[bot]['task'] = None
 
-		if self.fleet_members[msg.bot_name]['task'] is None:
+		if self.fleet_members[bot]['task'] is None:
 			for task in self.task_pool:
-				if self.fleet_members.get(task[1].bot_name) is None or task[1].bot_name == msg.bot_name:
+				if self.fleet_members.get(task[1].bot_name) is None or task[1].bot_name == bot:
 					self.task_pool.remove(task)
-					task[1].bot_name = msg.bot_name
-					self.fleet_members[msg.bot_name]['task'] = task
-					self._publishTask(self.fleet_members[msg.bot_name]['task'][1])
-					self.get_logger().info(f'Arrange {msg.bot_name} to {task[1].goal.position.x, task[1].goal.position.y}')
+					task[1].bot_name = bot
+					self.fleet_members[bot]['task'] = task
+					self._publishTask(self.fleet_members[bot]['task'][1])
+					self._publishResponse(self.fleet_members[bot]['task'][0], bot, TaskStatus.TASK_EXECUTING)
+					self.get_logger().info(f'@debug Pool has tasks! Arrange {bot} to {task[1].goal.position.x, task[1].goal.position.y}')
+#					self.get_logger().info(f'Arrange {bot} to {task[1].goal.position.x, task[1].goal.position.y}')
 					break
 
 	def _publishTask(self, msg):
 		self.task_arrange_pub.publish(msg)
+
+	def _publishResponse(self, task_uuid, bot_name, status):
+		self.get_logger().info(f'@debug pub response: {task_uuid, bot_name, status}')
+		res_msg = TaskResponse()
+		res_msg.task_uuid = task_uuid
+		res_msg.bot_name = bot_name
+		res_msg.task_status.status = status
+		self.task_response_pub.publish(res_msg)
 
 	def fleetCheck(self):
 		bots = list(self.fleet_members.keys())
@@ -126,21 +141,22 @@ class TaskServer(Node):
 						x2, y2 = self.fleet_members[other_bot]['pos']
 						dist = sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
 						safe_dist = max(self.fleet_members[bot]['keepout_radius'], self.fleet_members[other_bot]['keepout_radius'])
+						self.get_logger().info(f'@debug checking moving AMR ({bot}-{other_bot}) dist {dist}')
 						if dist <= safe_dist:
 							# 2. Make the AMR that has shorter distance to the goal go first
-							if self.fleet_members[bot]['distance_remain'] > self.fleet_members[other_bot]['distance_remain']:
+							if self.fleet_members[bot]['distance_remaining'] > self.fleet_members[other_bot]['distance_remaining']:
 								clear_to_go[bot] = False
 							else:
 								clear_to_go[other_bot] = False
 
 		for bot in bots:
 			if self.fleet_members[bot]['task'] is not None:
-				if not clear_to_go[bot] and self.fleet_members[bot]['task'][1].task_cmd == TaskArrange.TASK_EXEC:
-					self.fleet_members[bot]['task'][1].task_cmd = TaskArrange.TASK_PAUSE
+				if not clear_to_go[bot] and self.fleet_members[bot]['task'][1].task_cmd == TaskArrange.CMD_EXECUTE:
+					self.fleet_members[bot]['task'][1].task_cmd = TaskArrange.CMD_PAUSE
 					self.task_arrange_pub.publish(self.fleet_members[bot]['task'][1])
 					self.get_logger().info(f'Pause {bot}')
-				elif clear_to_go[bot] and self.fleet_members[bot]['task'][1].task_cmd == TaskArrange.TASK_PAUSE:
-					self.fleet_members[bot]['task'][1].task_cmd = TaskArrange.TASK_EXEC
+				elif clear_to_go[bot] and self.fleet_members[bot]['task'][1].task_cmd == TaskArrange.CMD_PAUSE:
+					self.fleet_members[bot]['task'][1].task_cmd = TaskArrange.CMD_EXECUTE
 					self.task_arrange_pub.publish(self.fleet_members[bot]['task'][1])
 					self.get_logger().info(f'Resume {bot}')
 
