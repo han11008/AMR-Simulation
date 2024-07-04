@@ -29,6 +29,7 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 		self.ui = Ui_MainWindow()
 		self.ui.setupUi(self)
 		self.setup()
+		self.setWindowState(Qt.WindowMaximized)
 
 	def phyPosToMap(self, phy_x, phy_y):
 		map_x = (phy_x - CONFIG['phy_origin_point'][0]) / self.map_resolution
@@ -59,6 +60,9 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 			idx += 1
 
 	def setup(self):
+		max_w, max_h = QtWidgets.QApplication.desktop().size().toTuple()
+		self.ui.tableTask.setMaximumSize(QSize(max_w // 3, max_h))
+
 		self.map_label = QLabel(self.ui.widgetMap)
 		self.map_img = QPixmap(CONFIG['map_image'])
 		self.map_scale = 1
@@ -124,7 +128,6 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 			self.map_img = QPixmap(CONFIG['map_image']).scaled(w, h)
 			self.map_label.setPixmap(self.map_img)
 			self.map_label.resize(w, h)
-			self.plan_path_label.resize(w, h)
 			self.ui.widgetMap.resize(w, h)
 			self.map_resolution = CONFIG['map_resolution'] / scale
 			self.map_scale = scale
@@ -132,7 +135,7 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 			self.edit_pos_param.emit(self.map_ori_x, self.map_ori_y, self.map_resolution)
 			self.placeButton()
 
-	@Slot(str, float, float)
+	@Slot(str, int, int)
 	def updatePos(self, bot_name, map_x, map_y):
 		if self.bots.get(bot_name) is None:
 			self.ui.comboBoxBot.addItem(bot_name)
@@ -151,6 +154,11 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 			self.bots[bot_name]['name_label'].setGeometry(QRect(self.map_ori_x - self.pos_icon_offset_x, self.map_ori_y - self.pos_icon_offset_y,
 				CONFIG['cur_pos_icon_shape'][0], 26))
 			self.bots[bot_name]['name_label'].show()
+		elif map_x < 0 and self.bots.get(bot_name) is not None:
+			self.ui.comboBoxBot.removeItem(self.ui.comboBoxBot.findText(self.bots[bot_name]['name_label'].text()))
+			self.bots[bot_name]['pin_label'].setParent(None)
+			self.bots[bot_name]['name_label'].setParent(None)
+			_ = self.bots.pop(bot_name)
 		else:
 			map_x -= self.pos_icon_offset_x
 			map_y -= self.pos_icon_offset_y
@@ -206,6 +214,7 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 				task_uuid = k
 				break
 		self.assign_task_signal.emit(task_uuid, f'{self.ui.tableTask.item(row_idx, 1).text()}', True, 0.0, 0.0)
+		btn.setStyleSheet('color: #AAAAAA; text-decoration: underline;')
 		self.sender().setEnabled(False)
 
 	def closeEvent(self, event):

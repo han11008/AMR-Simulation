@@ -18,6 +18,8 @@ ORIENTATION = {
 	'CLOCKWISE270': 3
 }
 
+GET_POSE_TOLERANCE = 3.0
+
 class TaskManageThread(QThread):
 	update_signal = Signal(str, str, str, bool)
 
@@ -87,7 +89,7 @@ class TaskManageThread(QThread):
 		self.executor.shutdown()
 
 class PosUpdaterThread(QThread):
-	update_signal = Signal(str, float, float)
+	update_signal = Signal(str, int, int)
 
 	def __init__(self, map_ori_x, map_ori_y, phy_ori_x, phy_ori_y, map_resolution, map_orientation):
 		super().__init__()
@@ -97,9 +99,14 @@ class PosUpdaterThread(QThread):
 		self.phy_ori_y = phy_ori_y
 		self.map_resolution = map_resolution
 		self.map_orientation = map_orientation
+		self.fleet = {}
 
 		self.node = Node(f'fleet_pose_listener_{os.getpid()}')
-		_ = self.node.create_subscription(BotPose, '/fleet_pose', self.getPose, 5)
+		sub_cbg = MutuallyExclusiveCallbackGroup()
+		_ = self.node.create_subscription(BotPose, '/fleet_pose', self.getPose, 10, callback_group=sub_cbg)
+
+		check_cbg = MutuallyExclusiveCallbackGroup()
+		self.check_fleet_timer = self.node.create_timer(1.0, self._checkFleet, callback_group=check_cbg)
 
 	@Slot(int, int, float)
 	def editParam(self, map_ori_x, map_ori_y, map_resolution):
@@ -129,11 +136,20 @@ class PosUpdaterThread(QThread):
 		return (map_x, map_y)
 
 	def getPose(self, msg):
+		self.fleet[msg.bot_name] = time()
 		x, y = self.phyPosToMap(msg.current_pose.position.x, msg.current_pose.position.y)
 		self.update_signal.emit(msg.bot_name, x, y)
 
+	def _checkFleet(self):
+		bots = list(self.fleet.keys())
+		current_time = time()
+		for bot in bots:
+			if current_time - self.fleet[bot] > GET_POSE_TOLERANCE:
+				self.update_signal.emit(bot, -1, -1)
+				_ = self.fleet.pop(bot)
+
 	def run(self):
-		self.executor = SingleThreadedExecutor()
+		self.executor = MultiThreadedExecutor()
 		self.executor.add_node(self.node)
 		try:
 			self.executor.spin()
