@@ -33,7 +33,6 @@ class TaskServer(Node):
 
 	def getTask(self, request, response):
 		if request.cancel:
-			self.get_logger().info(f'@debug get cancel req {request.task_uuid} {request.bot_name}')
 			# Cancel an executing task
 			if self.fleet_members.get(request.bot_name) is not None and self.fleet_members[request.bot_name]['task'] is not None and self.fleet_members[request.bot_name]['task'][0] == request.task_uuid:
 				self.fleet_members[request.bot_name]['task'][1].task_cmd = TaskArrange.CMD_CANCEL
@@ -45,7 +44,6 @@ class TaskServer(Node):
 					if task[0] == request.task_uuid:
 						self.task_pool.remove(task)
 						self._publishResponse(task[0], request.bot_name, TaskStatus.TASK_CANCELLED)
-						self.get_logger().info(f'@debug cancel task in pool: {task[0], task[1].bot_name, task[1].goal.position}')
 						break
 		else:
 			new_task = TaskArrange()
@@ -61,7 +59,6 @@ class TaskServer(Node):
 					if self.fleet_members[bot]['task'] is None:
 						x2, y2 = self.fleet_members[bot]['pos']
 						dist = sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
-						self.get_logger().info(f'@debug try to find closer AMR: {bot, dist} ( bot: {x2, y2} / goal: {x1, y1} ) (cur_min: {min_dist})')
 						if dist < min_dist:
 							min_dist = dist
 							assigned_bot = bot
@@ -112,15 +109,13 @@ class TaskServer(Node):
 					self.fleet_members[bot]['task'] = task
 					self._publishTask(self.fleet_members[bot]['task'][1])
 					self._publishResponse(self.fleet_members[bot]['task'][0], bot, TaskStatus.TASK_EXECUTING)
-					self.get_logger().info(f'@debug Pool has tasks! Arrange {bot} to {task[1].goal.position.x, task[1].goal.position.y}')
-#					self.get_logger().info(f'Arrange {bot} to {task[1].goal.position.x, task[1].goal.position.y}')
+					self.get_logger().info(f'Arrange {bot} to {task[1].goal.position.x, task[1].goal.position.y}')
 					break
 
 	def _publishTask(self, msg):
 		self.task_arrange_pub.publish(msg)
 
 	def _publishResponse(self, task_uuid, bot_name, status):
-		self.get_logger().info(f'@debug pub response: {task_uuid, bot_name, status}')
 		res_msg = TaskResponse()
 		res_msg.task_uuid = task_uuid
 		res_msg.bot_name = bot_name
@@ -141,7 +136,6 @@ class TaskServer(Node):
 						x2, y2 = self.fleet_members[other_bot]['pos']
 						dist = sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
 						safe_dist = max(self.fleet_members[bot]['keepout_radius'], self.fleet_members[other_bot]['keepout_radius'])
-						self.get_logger().info(f'@debug checking moving AMR ({bot}-{other_bot}) dist {dist}')
 						if dist <= safe_dist:
 							# 2. Make the AMR that has shorter distance to the goal go first
 							if self.fleet_members[bot]['distance_remaining'] > self.fleet_members[other_bot]['distance_remaining']:

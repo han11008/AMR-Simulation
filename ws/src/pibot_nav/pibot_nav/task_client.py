@@ -165,7 +165,6 @@ class TaskClient(Node):
 
 	def getTask(self, msg):
 		if msg.bot_name == self.bot_name and msg.task_cmd != TaskArrange.CMD_FINISH:
-			self.get_logger().info(f'@debug recv task cmd: {msg.task_cmd}, already has task {self.task is not None}')
 			if self.task is None and msg.task_cmd == TaskArrange.CMD_EXECUTE:
 				count = 0
 				while not self.nav_client.wait_for_server(timeout_sec=1.5):
@@ -210,13 +209,11 @@ class TaskClient(Node):
 			self._publishStatus()
 			self.goal_handle = request_permission.get_result_async()
 			self.goal_handle.add_done_callback(self._finishTask)
-			self.get_logger().info(f'@debug [ _sendGoalResult ] task to {self.task.goal.position} accept')
 		else:
 			self.status_report.task_status.status = TaskStatus.TASK_ABORTED
 			self._publishStatus()
 
 	def _finishTask(self, future):
-		self.get_logger().info(f'@debug [ _finishTask ] task to {self.task.goal.position} end')
 		if future.result().status == GoalStatus.STATUS_SUCCEEDED:
 			self.status_report.task_status.status = TaskStatus.TASK_SUCCEEDED
 			self.get_logger().info(f'Task succeeded')
@@ -248,7 +245,6 @@ class TaskClient(Node):
 				self.announced = True
 				self._publishStatus()
 			elif abs(prev_x - self.pose_msg.current_pose.position.x) > 0.2 or abs(prev_y - self.pose_msg.current_pose.position.y) > 0.2:
-				self.get_logger().info(f'@debug adjust current_pose')
 				self._publishStatus()
 		except:
 			pass

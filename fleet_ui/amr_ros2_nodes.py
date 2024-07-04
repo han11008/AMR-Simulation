@@ -4,12 +4,19 @@ from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
 from rclpy.executors import SingleThreadedExecutor, MultiThreadedExecutor
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from fleet_msgs.srv import TaskRequest
-from fleet_msgs.msg import TaskResponse, TaskStatus
+from fleet_msgs.msg import TaskResponse, TaskStatus, BotPose
 import os
 import numpy as np
 from time import time
 
 from PySide2.QtCore import QThread, Signal, Slot
+
+ORIENTATION = {
+	'ORIGINAL': 0,
+	'CLOCKWISE90': 1,
+	'CLOCKWISE180': 2,
+	'CLOCKWISE270': 3
+}
 
 class TaskManageThread(QThread):
 	update_signal = Signal(str, str, str, bool)
@@ -69,6 +76,64 @@ class TaskManageThread(QThread):
 
 	def run(self):
 		self.executor = MultiThreadedExecutor()
+		self.executor.add_node(self.node)
+		try:
+			self.executor.spin()
+		except:
+			pass
+
+	def stop(self):
+		self.node.destroy_node()
+		self.executor.shutdown()
+
+class PosUpdaterThread(QThread):
+	update_signal = Signal(str, float, float)
+
+	def __init__(self, map_ori_x, map_ori_y, phy_ori_x, phy_ori_y, map_resolution, map_orientation):
+		super().__init__()
+		self.map_ori_x = map_ori_x
+		self.map_ori_y = map_ori_y
+		self.phy_ori_x = phy_ori_x
+		self.phy_ori_y = phy_ori_y
+		self.map_resolution = map_resolution
+		self.map_orientation = map_orientation
+
+		self.node = Node(f'fleet_pose_listener_{os.getpid()}')
+		_ = self.node.create_subscription(BotPose, '/fleet_pose', self.getPose, 5)
+
+	@Slot(int, int, float)
+	def editParam(self, map_ori_x, map_ori_y, map_resolution):
+		self.map_ori_x = map_ori_x
+		self.map_ori_y = map_ori_y
+		self.map_resolution = map_resolution
+
+	def phyPosToMap(self, phy_x, phy_y):
+		map_x = (phy_x - self.phy_ori_x) / self.map_resolution
+		map_y = (phy_y - self.phy_ori_y) / self.map_resolution
+
+		if self.map_orientation == ORIENTATION['CLOCKWISE90']:
+			tmp_x = map_x
+			map_x = map_y
+			map_y = -tmp_x
+		elif self.map_orientation == ORIENTATION['CLOCKWISE180']:
+			map_x = -map_x
+			map_y = -map_y
+		elif self.map_orientation == ORIENTATION['CLOCKWISE270']:
+			tmp_x = map_x
+			map_x = -map_y
+			map_y = tmp_x
+
+		map_x = round(self.map_ori_x + map_x)
+		map_y = round(self.map_ori_y - map_y)
+
+		return (map_x, map_y)
+
+	def getPose(self, msg):
+		x, y = self.phyPosToMap(msg.current_pose.position.x, msg.current_pose.position.y)
+		self.update_signal.emit(msg.bot_name, x, y)
+
+	def run(self):
+		self.executor = SingleThreadedExecutor()
 		self.executor.add_node(self.node)
 		try:
 			self.executor.spin()

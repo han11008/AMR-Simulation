@@ -10,7 +10,7 @@ from uuid import uuid1
 from mainwindow import Ui_MainWindow
 
 import rclpy
-from amr_ros2_nodes import TaskManageThread
+from amr_ros2_nodes import PosUpdaterThread, TaskManageThread
 
 CONFIG = json.load(open('resources/conf.json', 'r'))
 ORIENTATION = {
@@ -21,6 +21,7 @@ ORIENTATION = {
 }
 
 class MainWindow_controller(QtWidgets.QMainWindow):
+	edit_pos_param = Signal(int, int, float)
 	assign_task_signal = Signal(str, str, bool, float, float)
 
 	def __init__(self):
@@ -70,9 +71,12 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 		y = round((max_h - CONFIG['map_image_shape'][1]) / 2)
 		self.ui.widgetMap.setGeometry(x, y, w, h)
 
-		self.ui.comboBoxBot.addItem('any')
-		self.ui.comboBoxBot.addItem('bot1')
-		self.ui.comboBoxBot.addItem('bot2')
+		self.map_ori_x, self.map_ori_y = CONFIG['map_origin_point']
+		self.phy_ori_x, self.phy_ori_y = CONFIG['phy_origin_point']
+		self.pin_img = QPixmap(CONFIG['cur_pos_icon'])
+		self.pin_img_mask = self.pin_img.mask()
+		self.pos_icon_offset_x = CONFIG['cur_pos_icon_shape'][0] // 2
+		self.pos_icon_offset_y = CONFIG['cur_pos_icon_shape'][1]
 
 		self.button_group = QButtonGroup(self)
 		for idx in range(len(CONFIG['display_stops'])):
@@ -86,6 +90,14 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 			self.ui.comboBoxGoal.addItem(f'{idx}')
 
 		rclpy.init()
+
+		self.ui.comboBoxBot.addItem('any')
+		self.bots = {}
+		self.pos_thread = PosUpdaterThread(self.map_ori_x, self.map_ori_y, self.phy_ori_x, self.phy_ori_y, CONFIG['map_resolution'], CONFIG['map_orientation'])
+		self.pos_thread.update_signal.connect(self.updatePos)
+		self.edit_pos_param.connect(self.pos_thread.editParam)
+		self.pos_thread.start()
+
 		self.tasks = {}
 		self.task_thread = TaskManageThread()
 		self.task_thread.update_signal.connect(self.updateTaskStatus)
@@ -117,7 +129,36 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 			self.map_resolution = CONFIG['map_resolution'] / scale
 			self.map_scale = scale
 
+			self.edit_pos_param.emit(self.map_ori_x, self.map_ori_y, self.map_resolution)
 			self.placeButton()
+
+	@Slot(str, float, float)
+	def updatePos(self, bot_name, map_x, map_y):
+		if self.bots.get(bot_name) is None:
+			self.ui.comboBoxBot.addItem(bot_name)
+			self.bots[bot_name] = {
+				'pin_label': QLabel(self.ui.widgetMap),
+				'name_label': QLabel(self.ui.widgetMap)
+			}
+			self.bots[bot_name]['pin_label'].setPixmap(self.pin_img)
+			self.bots[bot_name]['pin_label'].setMask(self.pin_img_mask)
+			self.bots[bot_name]['pin_label'].setGeometry(QRect(self.map_ori_x - self.pos_icon_offset_x, self.map_ori_y - self.pos_icon_offset_y,
+				CONFIG['cur_pos_icon_shape'][0], CONFIG['cur_pos_icon_shape'][1]))
+			self.bots[bot_name]['pin_label'].show()
+
+			self.bots[bot_name]['name_label'].setText(bot_name)
+			self.bots[bot_name]['name_label'].setAlignment(Qt.AlignCenter)
+			self.bots[bot_name]['name_label'].setGeometry(QRect(self.map_ori_x - self.pos_icon_offset_x, self.map_ori_y - self.pos_icon_offset_y,
+				CONFIG['cur_pos_icon_shape'][0], 26))
+			self.bots[bot_name]['name_label'].show()
+		else:
+			map_x -= self.pos_icon_offset_x
+			map_y -= self.pos_icon_offset_y
+			self.bots[bot_name]['pin_label'].setGeometry(QRect(map_x, map_y, CONFIG['cur_pos_icon_shape'][0], CONFIG['cur_pos_icon_shape'][1]))
+			self.bots[bot_name]['pin_label'].setMask(self.pin_img_mask)
+
+			self.bots[bot_name]['name_label'].setGeometry(QRect(map_x, map_y, CONFIG['cur_pos_icon_shape'][0], 26))
+			self.bots[bot_name]['name_label'].raise_()
 
 	@Slot(str, str, str, bool)
 	def updateTaskStatus(self, task_uuid, bot_name, status, finished):
@@ -170,4 +211,8 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 	def closeEvent(self, event):
 		if rclpy.ok():
 			rclpy.shutdown()
+			self.pos_thread.stop()
+			self.pos_thread.wait()
+			self.task_thread.stop()
+			self.task_thread.wait()
 
