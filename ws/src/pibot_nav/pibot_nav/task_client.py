@@ -54,13 +54,13 @@ class TaskClient(Node):
 		self.motor_cmd_pub = self.create_publisher(Twist, 'motor_vel', 10, callback_group=collision_cbg)
 		self.cd_sub = self.create_subscription(CollisionDetectorState, 'collision_detector_state', self.confCDState, 10, callback_group=collision_cbg)
 
-		nav_client_cbg = MutuallyExclusiveCallbackGroup()
+		task_cbg = MutuallyExclusiveCallbackGroup()
+
 		qos = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
 		self.goal_handle = None
-		self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose', callback_group=nav_client_cbg, feedback_sub_qos_profile=qos)
-		self.nav_cancel_requester = self.create_client(CancelGoal, 'navigate_to_pose/_action/cancel_goal', callback_group=nav_client_cbg)
+		self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose', callback_group=task_cbg, feedback_sub_qos_profile=qos)
+		self.nav_cancel_requester = self.create_client(CancelGoal, 'navigate_to_pose/_action/cancel_goal', callback_group=task_cbg)
 
-		task_cbg = MutuallyExclusiveCallbackGroup()
 		transient_qos = QoSProfile(depth=10, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
 		self.task = None
 		self.task_sub = self.create_subscription(TaskArrange, '/fleet_task', self.getTask, transient_qos, callback_group=task_cbg)
@@ -194,7 +194,7 @@ class TaskClient(Node):
 							count += 1
 							if count >= 5:
 								return
-						_ = self.nav_cancel_requester.call(CancelGoal.Request())
+						_ = self.nav_cancel_requester.call_async(CancelGoal.Request())
 						self.get_logger().info(f'Cancelling the task to {self.task.goal.position.x, self.task.goal.position.y}')
 
 	def _feedbackCallback(self, msg):
