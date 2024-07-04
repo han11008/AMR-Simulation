@@ -5,11 +5,12 @@ from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.qos import QoSProfile, QoSDurabilityPolicy
 from nav_msgs.msg import OccupancyGrid
 from geometry_msgs.msg import PolygonStamped
-from std_msgs.msg import String
+from fleet_msgs.msg import BotPose
 from math import inf
+from time import time
 import numpy as np
 
-SELF_DECLARATION_PERIOD = 1.0
+GET_POSE_TOLERANCE = 3.0
 MAP_PUB_PERIOD = 0.2
 CELL_OCCUPIED = 100
 
@@ -27,15 +28,23 @@ class FleetMapServer(Node):
 		self.original_map_sub = self.create_subscription(OccupancyGrid, '/map', self.getMap, self.map_qos, callback_group=main_cbg)
 
 		self.bot_name = self.get_namespace().split('/')[1]
-		self.fleet_members_footprint = {}
+		self.fleet_members = {}
 		self.sub_footprint_cbg = MutuallyExclusiveCallbackGroup()
-		self.fleet_members_qos = QoSProfile(depth=5, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
-		self.fleet_members_sub = self.create_subscription(String, '/fleet_members', self.getFleetMembers, self.fleet_members_qos, callback_group=main_cbg)
+		self.fleet_members_sub = self.create_subscription(BotPose, '/fleet_pose', self.getFleetMembers, 10, callback_group=main_cbg)
 
-		self.self_declaration_msg = String()
-		self.self_declaration_msg.data = self.bot_name
-		self.self_declaration_pub = self.create_publisher(String, '/fleet_members', self.fleet_members_qos, callback_group=main_cbg)
-		self.self_declaration_pub.publish(self.self_declaration_msg)
+	def getFleetMembers(self, msg):
+		member = msg.bot_name
+		if member != self.bot_name:
+			if self.fleet_members.get(member) is None:
+				self.fleet_members[member] = {
+					'footprint': [],
+					'sub': self.create_subscription(PolygonStamped, f'/{member}/global_costmap/published_footprint',
+						lambda footprint_msg: self.getFootprint(footprint_msg, member), 1, callback_group=self.sub_footprint_cbg),
+					'last_time': time()
+				}
+				self.get_logger().info(f'Register fleet member {member}')
+			else:
+				self.fleet_members[member]['last_time'] = time()
 
 	def getMap(self, msg):
 		self.map_msg.info.resolution = msg.info.resolution
@@ -52,21 +61,21 @@ class FleetMapServer(Node):
 	def pubMap(self):
 		if self.map_data != []:
 			self.map_msg.data = self.map_data.copy()
-			for member, footprint_dict in self.fleet_members_footprint.items():
-				for coor in footprint_dict['footprint']:
+
+			current_time = time()
+			members = list(self.fleet_members.keys())
+			for member in members:
+				if current_time - self.fleet_members[member]['last_time'] > GET_POSE_TOLERANCE:
+					self.get_logger().info(f'Unregister {member} from fleet member')
+					_ = self.fleet_members.pop(member)
+					members.remove(member)
+
+			for member in members:
+				for coor in self.fleet_members[member]['footprint']:
 					x, y = coor
 					idx = self.map_msg.info.width * (self.map_msg.info.height - y - 1) + x
 					self.map_msg.data[idx] = CELL_OCCUPIED
 			self.fleet_map_pub.publish(self.map_msg)
-
-	def getFleetMembers(self, msg):
-		member_name = msg.data
-		if member_name != self.bot_name and member_name not in self.fleet_members_footprint.keys():
-			self.fleet_members_footprint[member_name] = {
-				'footprint': [],
-				'sub': self.create_subscription(PolygonStamped, f'/{member_name}/global_costmap/published_footprint',
-					lambda footprint_msg: self.getFootprint(footprint_msg, member_name), 1, callback_group=self.sub_footprint_cbg)
-			}
 
 	def getFootprint(self, msg, member):
 		if self.origin_point is not None:
@@ -83,23 +92,25 @@ class FleetMapServer(Node):
 				if y > max_y:
 					max_y = y
 			rect = np.mgrid[min_x:max_x+1, min_y:max_y+1].reshape(2, -1).transpose()
-			self.fleet_members_footprint[member]['footprint'] = []
+			self.fleet_members[member]['footprint'] = []
 			for coor in rect:
 				x, y = coor
-				self.fleet_members_footprint[member]['footprint'].append((x, y))
+				self.fleet_members[member]['footprint'].append((x, y))
 
 def main(args=None):
 	rclpy.init()
 	node = FleetMapServer()
 	executor = MultiThreadedExecutor()
-	try:
-		executor.add_node(node)
-		executor.spin()
-	except KeyboardInterrupt:
-		pass
-	except:
-		node.destroy_node()
-		executor.shutdown()
+	executor.add_node(node)
+	executor.spin()
+#	try:
+#		executor.add_node(node)
+#		executor.spin()
+#	except KeyboardInterrupt:
+#		pass
+#	except:
+#		node.destroy_node()
+#		executor.shutdown()
 
 if __name__ == '__main__':
 	main()

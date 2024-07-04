@@ -65,7 +65,7 @@ class TaskClient(Node):
 		self.task = None
 		self.task_sub = self.create_subscription(TaskArrange, '/fleet_task', self.getTask, transient_qos, callback_group=task_cbg)
 		self.status_report = BotReport()
-		self.status_report.bot_pose.bot_name = self.bot_name
+		self.status_report.bot_name = self.bot_name
 		self.status_report.task_status.status = TaskStatus.TASK_SUCCEEDED
 		self.status_report.keepout_radius = keepout_radius
 		self.status_report_pub = self.create_publisher(BotReport, '/fleet_status', transient_qos, callback_group=task_cbg)
@@ -74,7 +74,6 @@ class TaskClient(Node):
 		self.pose_msg = BotPose()
 		self.pose_msg.bot_name = self.bot_name
 		self.pose_pub = self.create_publisher(BotPose, '/fleet_pose', 1, callback_group=tf_cbg)
-		self.announced = False
 		self.tf_buffer = Buffer()
 		tf_trans = TransformListener(self.tf_buffer, self)
 		self.req_tf_timer = self.create_timer(REQUEST_TF_PERIOD, self.req_tf, callback_group=tf_cbg)
@@ -239,13 +238,6 @@ class TaskClient(Node):
 			self.pose_msg.current_pose.orientation.w = tf.transform.rotation.w
 
 			self.pose_pub.publish(self.pose_msg)
-
-			self.status_report.bot_pose.current_pose = self.pose_msg.current_pose
-			if not self.announced:
-				self.announced = True
-				self._publishStatus()
-			elif abs(prev_x - self.pose_msg.current_pose.position.x) > 0.2 or abs(prev_y - self.pose_msg.current_pose.position.y) > 0.2:
-				self._publishStatus()
 		except:
 			pass
 

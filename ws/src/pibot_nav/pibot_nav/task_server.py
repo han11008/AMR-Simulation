@@ -4,13 +4,13 @@ from rclpy.clock import Time
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.qos import QoSProfile, QoSDurabilityPolicy
-from fleet_msgs.msg import TaskArrange, TaskStatus, BotReport, TaskResponse
+from fleet_msgs.msg import TaskArrange, TaskStatus, BotPose, BotReport, TaskResponse
 from fleet_msgs.srv import TaskRequest
 from math import sqrt, inf
-from uuid import uuid1
+from time import time
 
 FLEET_CHECK_TIMER = 0.2
-NO_RESPONSE_COUNT_TOLERANCE = 8
+GET_POSE_TOLERANCE = 3.0
 
 class TaskServer(Node):
 	def __init__(self):
@@ -22,6 +22,9 @@ class TaskServer(Node):
 		task_ui_cbg = MutuallyExclusiveCallbackGroup()
 		self.task_pool = []
 		self.srv_server = self.create_service(TaskRequest, '/task_request', self.getTask, callback_group=task_ui_cbg)
+
+		bot_pose_cbg = MutuallyExclusiveCallbackGroup()
+		self.bot_pose_sub = self.create_subscription(BotPose, '/fleet_pose', self.getPose, 10, callback_group=bot_pose_cbg)
 
 		bot_status_cbg = MutuallyExclusiveCallbackGroup()
 		self.task_status_sub = self.create_subscription(BotReport, '/fleet_status', self.getStatus, transient_qos, callback_group=bot_status_cbg)
@@ -66,6 +69,7 @@ class TaskServer(Node):
 				assigned_bot = request.bot_name
 
 			if assigned_bot is None:
+				new_task.bot_name = request.bot_name
 				self.task_pool.append((request.task_uuid, new_task))
 				self.get_logger().info(f'Unable to send {"an AMR" if request_bot_not_exist else request.bot_name} to {new_task.goal.position.x, new_task.goal.position.y} now, the task will start when it is available')
 			else:
@@ -78,20 +82,27 @@ class TaskServer(Node):
 		response.accept = True
 		return response
 
-	def getStatus(self, msg):
-		bot = msg.bot_pose.bot_name
+	def getPose(self, msg):
+		bot = msg.bot_name
 		if self.fleet_members.get(bot) is None:
 			self.fleet_members[bot] = {
-				'keepout_radius': msg.keepout_radius,
-				'pos': (msg.bot_pose.current_pose.position.x, msg.bot_pose.current_pose.position.y),
-				'no_response_count': 0,
+				'keepout_radius': 1.5,
+				'pos': (msg.current_pose.position.x, msg.current_pose.position.y),
+				'last_time': time(),
 				'task': None,
 				'distance_remaining': 0.0
 			}
 			self.get_logger().info(f'Register fleet member {bot}')
 
+			self.searchTask(bot)
 		else:
-			self.fleet_members[bot]['pos'] = (msg.bot_pose.current_pose.position.x, msg.bot_pose.current_pose.position.y)
+			self.fleet_members[bot]['pos'] = (msg.current_pose.position.x, msg.current_pose.position.y)
+			self.fleet_members[bot]['last_time'] = time()
+
+	def getStatus(self, msg):
+		bot = msg.bot_name
+		if self.fleet_members.get(bot) is not None:
+			self.fleet_members[bot]['keepout_radius'] = msg.keepout_radius
 			if msg.task_status.status == TaskStatus.TASK_EXECUTING:
 				self.fleet_members[bot]['distance_remaining'] = msg.distance_remaining
 			elif self.fleet_members[bot]['task'] is not None:
@@ -101,16 +112,19 @@ class TaskServer(Node):
 					self._publishTask(self.fleet_members[bot]['task'][1])
 					self.fleet_members[bot]['task'] = None
 
-		if self.fleet_members[bot]['task'] is None:
-			for task in self.task_pool:
-				if self.fleet_members.get(task[1].bot_name) is None or task[1].bot_name == bot:
-					self.task_pool.remove(task)
-					task[1].bot_name = bot
-					self.fleet_members[bot]['task'] = task
-					self._publishTask(self.fleet_members[bot]['task'][1])
-					self._publishResponse(self.fleet_members[bot]['task'][0], bot, TaskStatus.TASK_EXECUTING)
-					self.get_logger().info(f'Arrange {bot} to {task[1].goal.position.x, task[1].goal.position.y}')
-					break
+			if self.fleet_members[bot]['task'] is None:
+				self.searchTask(bot)
+
+	def searchTask(self, bot):
+		for task in self.task_pool:
+			if self.fleet_members.get(task[1].bot_name) is None or task[1].bot_name == bot:
+				self.task_pool.remove(task)
+				task[1].bot_name = bot
+				self.fleet_members[bot]['task'] = task
+				self._publishTask(self.fleet_members[bot]['task'][1])
+				self._publishResponse(self.fleet_members[bot]['task'][0], bot, TaskStatus.TASK_EXECUTING)
+				self.get_logger().info(f'Arrange {bot} to {task[1].goal.position.x, task[1].goal.position.y}')
+				break
 
 	def _publishTask(self, msg):
 		self.task_arrange_pub.publish(msg)
@@ -123,7 +137,14 @@ class TaskServer(Node):
 		self.task_response_pub.publish(res_msg)
 
 	def fleetCheck(self):
+		current_time = time()
 		bots = list(self.fleet_members.keys())
+		for bot in bots:
+			if current_time - self.fleet_members[bot]['last_time'] > GET_POSE_TOLERANCE:
+				self.get_logger().info(f'Unregister {bot} from fleet member')
+				_ = self.fleet_members.pop(bot)
+				bots.remove(bot)
+		
 		clear_to_go = dict.fromkeys(bots, True)
 		for idx_main in range(len(bots)):
 			bot = bots[idx_main]
