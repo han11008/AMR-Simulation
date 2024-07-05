@@ -111,12 +111,6 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 		self.map_pos_label.setGeometry(QRect(self.map_ori_x - self.pos_icon_offset_x, self.map_ori_y - self.pos_icon_offset_y,
 			CONFIG['cur_pos_icon_shape'][0], CONFIG['cur_pos_icon_shape'][1]))
 
-		self.bot_label = QLabel(self.ui.widgetMap)
-		self.bot_label.setText('bot1')
-		self.bot_label.setAlignment(Qt.AlignCenter)
-		self.bot_label.setGeometry(QRect(self.map_ori_x - self.pos_icon_offset_x, self.map_ori_y - self.pos_icon_offset_y,
-			CONFIG['cur_pos_icon_shape'][0], 26))	
-
 		# Create an image layer that marks the plan path
 		self.plan_path_label = QLabel(self.ui.widgetMap)
 		self.plan_path_label.setGeometry(QRect(0, 0, CONFIG['map_image_shape'][0], CONFIG['map_image_shape'][1]))
@@ -124,7 +118,6 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 		for button in self.button_group.buttons():
 			button.raise_()
 		self.map_pos_label.raise_()
-		self.bot_label.raise_()
 
 	def confThread(self):
 		rclpy.init()
@@ -187,9 +180,6 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 		map_y -= self.pos_icon_offset_y
 		self.map_pos_label.setGeometry(QRect(map_x, map_y, CONFIG['cur_pos_icon_shape'][0], CONFIG['cur_pos_icon_shape'][1]))
 		self.map_pos_label.setMask(self.pin_img_mask)
-
-		self.bot_label.setGeometry(QRect(map_x, map_y, CONFIG['cur_pos_icon_shape'][0], 26))
-		self.bot_label.raise_()
 	# --------------------------------------------
 
 	# -------------- get_cam_thread --------------
@@ -210,7 +200,6 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 		for button in self.button_group.buttons():
 			button.raise_()
 		self.map_pos_label.raise_()
-		self.bot_label.raise_()
 	# --------------------------------------------
 
 	# -------------- nav_daemon_thread --------------

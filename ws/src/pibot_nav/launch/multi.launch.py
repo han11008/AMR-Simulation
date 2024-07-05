@@ -8,7 +8,7 @@ from launch_ros.actions import Node, PushRosNamespace, SetRemap
 from nav2_common.launch import RewrittenYaml
 
 ROBOTS = {
-	'bot1': [0.0, 0.0],
+	'bot1': [-0.2, 0.2],
 	'bot2': [1.0, 3.0]
 }
 
@@ -122,7 +122,7 @@ def generate_launch_description():
 	# ======================== Nav2 stack =========================
 	for bot_name in ROBOTS.keys():
 		nav2_param_path = RewrittenYaml(
-			source_file = os.path.join(pkg_share, 'param/nav2_params.yaml'),
+			source_file = os.path.join(pkg_share, 'param/nav2_params_multi.yaml'),
 			root_key = bot_name,
 			param_rewrites = {'default_nav_to_pose_bt_xml': bt_path,
 					'use_sim_time': use_sim_time},

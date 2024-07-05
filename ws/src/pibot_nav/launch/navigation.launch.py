@@ -15,7 +15,7 @@ def generate_launch_description():
 	use_sim_time = LaunchConfiguration('use_sim_time', default='True')
 	autostart = LaunchConfiguration('autostart', default='True')
 	bond_timeout = LaunchConfiguration('bond_timeout', default='6.0')
-	remappings = [('/tf', 'tf'), ('/tf_static', 'tf_static'), ('/modified_map', '/map')]
+	remappings = [('/tf', 'tf'), ('/tf_static', 'tf_static')]
 
 	keepout_map_path = LaunchConfiguration('keepout_map_path')
 	declare_keepout_map_path = DeclareLaunchArgument('keepout_map_path', default_value='',
