@@ -73,11 +73,18 @@ class TaskServer(Node):
 				self.task_pool.append((request.task_uuid, new_task))
 				self.get_logger().info(f'Unable to send {"an AMR" if request_bot_not_exist else request.bot_name} to {new_task.goal.position.x, new_task.goal.position.y} now, the task will start when it is available')
 			else:
-				new_task.bot_name = assigned_bot
-				self.fleet_members[assigned_bot]['task'] = (request.task_uuid, new_task)
-				self._publishTask(self.fleet_members[assigned_bot]['task'][1])
-				self._publishResponse(self.fleet_members[assigned_bot]['task'][0], assigned_bot, TaskStatus.TASK_EXECUTING)
-				self.get_logger().info(f'Arrange {assigned_bot} to {new_task.goal.position.x, new_task.goal.position.y}')
+				occupied_bot = self.taskGoalOccupancy(assigned_bot, new_task.goal.position)
+				if occupied_bot is None:
+					new_task.bot_name = assigned_bot
+					self.fleet_members[assigned_bot]['task'] = (request.task_uuid, new_task)
+					self._publishTask(self.fleet_members[assigned_bot]['task'][1])
+					self._publishResponse(self.fleet_members[assigned_bot]['task'][0], assigned_bot, TaskStatus.TASK_EXECUTING)
+					self.get_logger().info(f'Arrange {assigned_bot} to {new_task.goal.position.x, new_task.goal.position.y}')
+				else:
+					self._publishResponse(request.task_uuid, request.bot_name, TaskStatus.TASK_CANCELLED)
+					self.get_logger().info(f'Task to {new_task.goal.position.x, new_task.goal.position.y} is cancelled as {occupied_bot} is (going) there')
+
+				
 
 		response.accept = True
 		return response
@@ -119,12 +126,31 @@ class TaskServer(Node):
 		for task in self.task_pool:
 			if self.fleet_members.get(task[1].bot_name) is None or task[1].bot_name == bot:
 				self.task_pool.remove(task)
-				task[1].bot_name = bot
-				self.fleet_members[bot]['task'] = task
-				self._publishTask(self.fleet_members[bot]['task'][1])
-				self._publishResponse(self.fleet_members[bot]['task'][0], bot, TaskStatus.TASK_EXECUTING)
-				self.get_logger().info(f'Arrange {bot} to {task[1].goal.position.x, task[1].goal.position.y}')
-				break
+
+				occupied_bot = self.taskGoalOccupancy(bot, task[1].goal.position)
+				if occupied_bot is None:
+					task[1].bot_name = bot
+					self.fleet_members[bot]['task'] = task
+					self._publishTask(self.fleet_members[bot]['task'][1])
+					self._publishResponse(self.fleet_members[bot]['task'][0], bot, TaskStatus.TASK_EXECUTING)
+					self.get_logger().info(f'Arrange {bot} to {task[1].goal.position.x, task[1].goal.position.y}')
+					break
+				else:
+					self._publishResponse(task[0], task[1].bot_name, TaskStatus.TASK_CANCELLED)
+					self.get_logger().info(f'Task to {task[1].goal.position.x, task[1].goal.position.y} as {occupied_bot} is (going) there')
+
+	def taskGoalOccupancy(self, bot, goal_position):
+		x1, y1 = goal_position.x, goal_position.y
+		for other_bot in self.fleet_members.keys():
+			if bot != other_bot:
+				if self.fleet_members[other_bot]['task'] is None:
+					x2, y2 = self.fleet_members[other_bot]['pos']
+				else:
+					x2, y2 = self.fleet_members[other_bot]['task'][1].goal.position.x, self.fleet_members[other_bot]['task'][1].goal.position.y
+				dist = sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
+				if dist < self.fleet_members[bot]['keepout_radius']:
+					return other_bot
+		return None
 
 	def _publishTask(self, msg):
 		self.task_arrange_pub.publish(msg)
