@@ -11,6 +11,7 @@ from time import time
 
 FLEET_CHECK_TIMER = 0.2
 GET_POSE_TOLERANCE = 3.0
+GOAL_OCCUPANCY_DIST = 0.5
 
 class TaskServer(Node):
 	def __init__(self):
@@ -43,7 +44,7 @@ class TaskServer(Node):
 				self.get_logger().info(f'Cancelling the task of {request.bot_name}')
 			# Cancel a task that is still waiting in self.task_pool
 			else:
-				for task in self.task_pool:
+				for task in self.task_pool.copy():
 					if task[0] == request.task_uuid:
 						self.task_pool.remove(task)
 						self._publishResponse(task[0], request.bot_name, TaskStatus.TASK_CANCELLED)
@@ -123,7 +124,7 @@ class TaskServer(Node):
 				self.searchTask(bot)
 
 	def searchTask(self, bot):
-		for task in self.task_pool:
+		for task in self.task_pool.copy():
 			if self.fleet_members.get(task[1].bot_name) is None or task[1].bot_name == bot:
 				self.task_pool.remove(task)
 
@@ -148,7 +149,7 @@ class TaskServer(Node):
 				else:
 					x2, y2 = self.fleet_members[other_bot]['task'][1].goal.position.x, self.fleet_members[other_bot]['task'][1].goal.position.y
 				dist = sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
-				if dist < self.fleet_members[bot]['keepout_radius']:
+				if dist < GOAL_OCCUPANCY_DIST:
 					return other_bot
 		return None
 

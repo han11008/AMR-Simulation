@@ -64,7 +64,7 @@ class FleetMapServer(Node):
 
 			current_time = time()
 			members = list(self.fleet_members.keys())
-			for member in members:
+			for member in members.copy():
 				if current_time - self.fleet_members[member]['last_time'] > GET_POSE_TOLERANCE:
 					self.get_logger().info(f'Unregister {member} from fleet member')
 					_ = self.fleet_members.pop(member)

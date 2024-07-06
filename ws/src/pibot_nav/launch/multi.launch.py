@@ -8,8 +8,9 @@ from launch_ros.actions import Node, PushRosNamespace, SetRemap
 from nav2_common.launch import RewrittenYaml
 
 ROBOTS = {
-	'bot1': [-0.2, 0.2],
-	'bot2': [1.0, 3.0]
+	'bot1': [-0.2, 0.2, 0.0],
+	'bot2': [1.0, 3.0, 0.0],
+#	'bot3': [-4.6, 3.0, -1.57]
 }
 
 def generate_launch_description():
@@ -17,10 +18,10 @@ def generate_launch_description():
 	pkg_share = get_package_share_directory(pkg_name)
 	ld = LaunchDescription()
 
-#	bot_name = LaunchConfiguration('bot_name', default='bot1')
-#	declare_namespace = DeclareLaunchArgument('bot_name', default_value='bot1',
-#		description='Define namespace')
-#	ld.add_action(declare_namespace)
+	keepout_map_path = LaunchConfiguration('keepout_map_path')
+	declare_keepout_map_path = DeclareLaunchArgument('keepout_map_path', default_value='',
+		description='Provide keepout map (.yaml) to use keepout filter')
+	ld.add_action(declare_keepout_map_path)
 
 	use_rviz = LaunchConfiguration('use_rviz')
 	declare_use_rviz = DeclareLaunchArgument('use_rviz', default_value='True',
@@ -54,7 +55,7 @@ def generate_launch_description():
 			Node(
 				package = 'gazebo_ros',
 				executable = 'spawn_entity.py',
-				arguments = f'-entity robot -file {robot_path} -entity {bot_name} -robot_namespace {bot_name} -x {ROBOTS[bot_name][0]} -y {ROBOTS[bot_name][1]}'.split(' '),
+				arguments = f'-entity robot -file {robot_path} -entity {bot_name} -robot_namespace {bot_name} -x {ROBOTS[bot_name][0]} -y {ROBOTS[bot_name][1]} -Y {ROBOTS[bot_name][2]}'.split(' '),
 				namespace = bot_name
 			)
 		)
@@ -72,38 +73,104 @@ def generate_launch_description():
 	# =============================================================
 
 	# ======================== map server =========================
-	lifecycle_node = Node(
-		package = 'nav2_lifecycle_manager',
-		executable = 'lifecycle_manager',
-		name = 'lifecycle_manager_map_server',
-		emulate_tty = True,
-		respawn = True,
-		respawn_delay = 2.0,
-		parameters = [{'use_sim_time': use_sim_time},
-			{'autostart': autostart},
-			{'node_names': ['map_server']},
-			{'bond_timeout': bond_timeout}],
-		output = 'screen'
+	ld.add_action(
+		Node(
+			condition = IfCondition(PythonExpression(['"', keepout_map_path,  '" == ""'])),
+			package = 'nav2_lifecycle_manager',
+			executable = 'lifecycle_manager',
+			name = 'lifecycle_manager_map_server',
+			emulate_tty = True,
+			respawn = True,
+		        respawn_delay = 2.0,
+		        parameters = [{
+		        	'use_sim_time': use_sim_time,
+				'autostart': autostart,
+				'node_names': ['map_server'],
+				'bond_timeout': bond_timeout
+			}],
+		        output = 'screen'
+		)
 	)
 
-	map_server_node = Node(
-		package = 'nav2_map_server',
-		executable = 'map_server',
-		name = 'map_server',
-		emulate_tty = True,
-		respawn = True,
-		respawn_delay = 2.0,
-		parameters = [
-			{'use_sim_time': use_sim_time},
-			{'yaml_filename': os.path.join(pkg_share, 'map/map.yaml')},
-			{'topic_name': '/map'},
-			{'frame_id': 'map'}
-		],
-		output = 'screen'
+	ld.add_action(
+		Node(
+			condition = IfCondition(PythonExpression(['"', keepout_map_path,  '" != ""'])),
+			package = 'nav2_lifecycle_manager',
+			executable = 'lifecycle_manager',
+			name = 'lifecycle_manager_map_server',
+			emulate_tty = True,
+			respawn = True,
+		        respawn_delay = 2.0,
+		        parameters = [{
+		        	'use_sim_time': use_sim_time,
+				'autostart': autostart,
+				'node_names': ['map_server', 'filter_map_server', 'costmap_filter_info_server'],
+				'bond_timeout': bond_timeout
+			}],
+		        output = 'screen'
+		)
 	)
 
-	ld.add_action(lifecycle_node)
-	ld.add_action(map_server_node)
+	ld.add_action(
+		Node(
+			package = 'nav2_map_server',
+			executable = 'map_server',
+			name = 'map_server',
+			emulate_tty = True,
+			respawn = True,
+			respawn_delay = 2.0,
+			parameters = [{
+				'use_sim_time': use_sim_time,
+				'yaml_filename': os.path.join(pkg_share, 'map/map.yaml'),
+				'topic_name': '/map',
+				'frame_id': 'map'
+			}],
+			output = 'screen'
+		)
+	)
+
+	ld.add_action(
+		Node(
+			condition = IfCondition(PythonExpression(['"', keepout_map_path,  '" != ""'])),
+			package = 'nav2_map_server',
+			executable = 'map_server',
+			name = 'filter_map_server',
+			emulate_tty = True,
+			respawn = True,
+		        respawn_delay = 2.0,
+		        parameters = [{
+				'use_sim_time': use_sim_time,
+				'yaml_filename': os.path.join(pkg_share, 'map/keepout.yaml'),
+				'topic_name': '/keepout_filter',
+				'frame_id': 'map'
+			}],
+			remappings = remappings,
+		        output = 'screen'
+		)
+	)
+
+	ld.add_action(
+		Node(
+			condition = IfCondition(PythonExpression(['"', keepout_map_path,  '" != ""'])),
+			package = 'nav2_map_server',
+			executable = 'costmap_filter_info_server',
+			name = 'costmap_filter_info_server',
+			emulate_tty = True,
+			respawn = True,
+		        respawn_delay = 2.0,
+			parameters = [{
+				'use_sim_time': use_sim_time,
+				'type': 0,
+				'filter_info_topic': '/costmap_filter_info',
+				'mask_topic': '/keepout_filter',
+				'base': 0.0,
+				'multiplier': 1.0
+			}],
+			remappings = remappings,
+		        output = 'screen'
+
+		)
+	)	
 
 	for bot_name in ROBOTS.keys():
 		ld.add_action(
@@ -129,6 +196,13 @@ def generate_launch_description():
 			convert_types = True
 		)
 
+		planner_w_keepout_param_path = RewrittenYaml(
+			source_file = os.path.join(pkg_share, 'param/planner_w_keepout.yaml'),
+			root_key = bot_name,
+			param_rewrites = {'use_sim_time': use_sim_time},
+			convert_types = True
+		)
+
 		nav2_stack_group = GroupAction(
 			actions = [
 				PushRosNamespace(namespace=bot_name),
@@ -142,10 +216,12 @@ def generate_launch_description():
 					emulate_tty = True,
 					respawn = True,
 					respawn_delay = 2.0,
-					parameters = [{'use_sim_time': use_sim_time},
-						{'autostart': autostart},
-						{'node_names': lifecycle_nodes},
-						{'bond_timeout': bond_timeout}],
+					parameters = [{
+						'use_sim_time': use_sim_time,
+						'autostart': autostart,
+						'node_names': lifecycle_nodes,
+						'bond_timeout': bond_timeout
+					}],
 					output = 'screen'
 				),
 
@@ -174,6 +250,7 @@ def generate_launch_description():
 				),
 
 				Node(
+					condition = IfCondition(PythonExpression(['"', keepout_map_path,  '" == ""'])),
 					package = 'nav2_planner',
 					executable = 'planner_server',
 					name = 'planner_server',
@@ -181,6 +258,19 @@ def generate_launch_description():
 					respawn = True,
 					respawn_delay = 2.0,
 					parameters = [nav2_param_path],
+					remappings = remappings,
+					output = 'screen'
+				),
+
+				Node(
+					condition = IfCondition(PythonExpression(['"', keepout_map_path,  '" != ""'])),
+					package = 'nav2_planner',
+					executable = 'planner_server',
+					name = 'planner_server',
+					emulate_tty = True,
+					respawn = True,
+					respawn_delay = 2.0,
+					parameters = [planner_w_keepout_param_path],
 					remappings = remappings,
 					output = 'screen'
 				),
@@ -234,10 +324,12 @@ def generate_launch_description():
 					emulate_tty = True,
 					respawn = True,
 					respawn_delay = 2.0,
-					parameters = [{'use_sim_time': use_sim_time},
-						{'autostart': autostart},
-						{'node_names': ['collision_detector']},
-						{'bond_timeout': bond_timeout}],
+					parameters = [{
+						'use_sim_time': use_sim_time,
+						'autostart': autostart,
+						'node_names': ['collision_detector'],
+						'bond_timeout': bond_timeout
+					}],
 					output = 'screen'
 				),
 
@@ -274,9 +366,7 @@ def generate_launch_description():
 				package = pkg_name,
 				executable = 'task_client',
 				name = 'task_client',
-				parameters = [
-					{'keepout_radius': 1.5}
-				],
+				parameters = [{'keepout_radius': 0.8}],
 				namespace = bot_name,
 				remappings = remappings,
 				output = 'screen'
