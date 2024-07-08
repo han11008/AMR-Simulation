@@ -5,7 +5,7 @@ from rclpy.executors import SingleThreadedExecutor, MultiThreadedExecutor
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from fleet_msgs.srv import TaskRequest
 from fleet_msgs.msg import TaskResponse, TaskStatus, BotPose
-import os
+import os, math
 import numpy as np
 from time import time
 
@@ -89,7 +89,7 @@ class TaskManageThread(QThread):
 		self.executor.shutdown()
 
 class PosUpdaterThread(QThread):
-	update_signal = Signal(str, int, int)
+	update_signal = Signal(str, int, int, float)
 
 	def __init__(self, map_ori_x, map_ori_y, phy_ori_x, phy_ori_y, map_resolution, map_orientation):
 		super().__init__()
@@ -138,7 +138,10 @@ class PosUpdaterThread(QThread):
 	def getPose(self, msg):
 		self.fleet[msg.bot_name] = time()
 		x, y = self.phyPosToMap(msg.current_pose.position.x, msg.current_pose.position.y)
-		self.update_signal.emit(msg.bot_name, x, y)
+		self.update_signal.emit(msg.bot_name, x, y, self.getOrientation(msg.current_pose.orientation.z, msg.current_pose.orientation.w))
+
+	def getOrientation(self, qz, qw):
+		return math.degrees(math.atan2(2.0 * (qw * qz), 1.0 - 2.0 * (qz * qz)))
 
 	def _checkFleet(self):
 		bots = list(self.fleet.keys())

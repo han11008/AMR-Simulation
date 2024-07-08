@@ -15,12 +15,13 @@ find_package(geometry_msgs REQUIRED)
 set(msg_files
 "msg/BotPose.msg"
 "msg/BotReport.msg"
+"msg/TaskCommand.msg"
 "msg/TaskStatus.msg"
-"msg/TaskArrange.msg"
 "msg/TaskResponse.msg"
 )
 
 set(srv_files
+"srv/TaskArrange.srv"
 "srv/TaskRequest.srv"
 )
 ################################

@@ -11,7 +11,8 @@ from action_msgs.srv import CancelGoal
 from nav2_msgs.action import NavigateToPose
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
-from fleet_msgs.msg import TaskArrange, TaskStatus, BotPose, BotReport
+from fleet_msgs.msg import TaskCommand, TaskStatus, BotPose, BotReport
+from fleet_msgs.srv import TaskArrange
 from time import time, sleep
 
 CD_POLY = {
@@ -62,8 +63,8 @@ class TaskClient(Node):
 		self.nav_cancel_requester = self.create_client(CancelGoal, 'navigate_to_pose/_action/cancel_goal', callback_group=task_cbg)
 
 		transient_qos = QoSProfile(depth=10, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
-		self.task = None
-		self.task_sub = self.create_subscription(TaskArrange, '/fleet_task', self.getTask, transient_qos, callback_group=task_cbg)
+		self.task_goal = None
+		self.task_getter = self.create_service(TaskArrange, f'/{self.bot_name}/fleet_task', self.getTask, callback_group=task_cbg)
 		self.status_report = BotReport()
 		self.status_report.bot_name = self.bot_name
 		self.status_report.task_status.status = TaskStatus.TASK_SUCCEEDED
@@ -162,40 +163,42 @@ class TaskClient(Node):
 	def _publishStatus(self):
 		self.status_report_pub.publish(self.status_report)
 
-	def getTask(self, msg):
-		if msg.bot_name == self.bot_name and msg.task_cmd != TaskArrange.CMD_FINISH:
-			if self.task is None and msg.task_cmd == TaskArrange.CMD_EXECUTE:
-				count = 0
-				while not self.nav_client.wait_for_server(timeout_sec=1.5):
-					count += 1
-					if count > 5:
-						self.status_report.task_status.status = TaskStatus.TASK_ABORTED
-						self._publishStatus()
-						return
+	def getTask(self, request, response):
+		if self.task_goal is None and request.task_cmd.task_cmd == TaskCommand.CMD_EXECUTE:
+			count = 0
+			while not self.nav_client.wait_for_server(timeout_sec=1.5):
+				count += 1
+				if count > 5:
+					self.status_report.task_status.status = TaskStatus.TASK_ABORTED
+					self._publishStatus()
+					return
 
-				self.status_report.task_status.status = TaskStatus.TASK_EXECUTING
-				self.task = msg
+			self.status_report.task_status.status = TaskStatus.TASK_EXECUTING
+			self.task_goal = request.goal
 
-				nav_req = NavigateToPose.Goal()
-				nav_req.pose.header.frame_id = 'map'
-				nav_req.pose.pose = msg.goal
-				send_future = self.nav_client.send_goal_async(nav_req, self._feedbackCallback)
-				send_future.add_done_callback(self._sendGoalResult)
-				self.get_logger().info(f'Navigating to {msg.goal.position.x, msg.goal.position.y}')
-			else:
-				if msg.task_cmd == TaskArrange.CMD_EXECUTE:
-					self.task_paused = False
-				elif msg.task_cmd == TaskArrange.CMD_PAUSE:
-					self.task_paused = True
-				elif msg.task_cmd == TaskArrange.CMD_CANCEL:
-					if self.goal_handle is not None:
-						count = 0
-						while not self.nav_cancel_requester.wait_for_service(timeout_sec=1.5):
-							count += 1
-							if count >= 5:
-								return
-						_ = self.nav_cancel_requester.call_async(CancelGoal.Request())
-						self.get_logger().info(f'Cancelling the task to {self.task.goal.position.x, self.task.goal.position.y}')
+			nav_req = NavigateToPose.Goal()
+			nav_req.pose.header.frame_id = 'map'
+			nav_req.pose.pose = request.goal
+			send_future = self.nav_client.send_goal_async(nav_req, self._feedbackCallback)
+			send_future.add_done_callback(self._sendGoalResult)
+			self.get_logger().info(f'Navigating to {request.goal.position.x, request.goal.position.y}')
+		else:
+			if request.task_cmd.task_cmd == TaskCommand.CMD_EXECUTE:
+				self.task_paused = False
+			elif request.task_cmd.task_cmd == TaskCommand.CMD_PAUSE:
+				self.task_paused = True
+			elif request.task_cmd.task_cmd == TaskCommand.CMD_CANCEL:
+				if self.goal_handle is not None:
+					count = 0
+					while not self.nav_cancel_requester.wait_for_service(timeout_sec=1.5):
+						count += 1
+						if count >= 5:
+							return
+					_ = self.nav_cancel_requester.call_async(CancelGoal.Request())
+					self.get_logger().info(f'Cancelling the task to {self.task_goal.position.x, self.task_goal.position.y}')
+
+		response.accept = True
+		return response
 
 	def _feedbackCallback(self, msg):
 		self.status_report.distance_remaining = msg.feedback.distance_remaining
@@ -223,7 +226,7 @@ class TaskClient(Node):
 			self.status_report.task_status.status = TaskStatus.TASK_ABORTED
 			self.get_logger().info(f'Task aborted')
 		self._publishStatus()
-		self.task = None
+		self.task_goal = None
 		self.goal_handle = None
 
 	def req_tf(self):

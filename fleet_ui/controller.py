@@ -2,7 +2,7 @@ from PySide2 import QtWidgets, QtCore
 from PySide2.QtWidgets import QPushButton, QButtonGroup, QLabel, QComboBox, QTableWidgetItem
 from PySide2.QtCore import QSize, QRect, Qt, QThread, QObject, Signal, Slot, qDebug
 from PySide2.QtGui import QPixmap, QImage
-import json
+import json, cv2
 import numpy as np
 from math import floor
 from uuid import uuid1
@@ -77,10 +77,17 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 
 		self.map_ori_x, self.map_ori_y = CONFIG['map_origin_point']
 		self.phy_ori_x, self.phy_ori_y = CONFIG['phy_origin_point']
-		self.pin_img = QPixmap(CONFIG['cur_pos_icon'])
-		self.pin_img_mask = self.pin_img.mask()
+		pin_ori_img = cv2.imread(CONFIG['cur_pos_icon'], cv2.IMREAD_UNCHANGED)
+		if CONFIG['map_orientation'] == ORIENTATION['CLOCKWISE90']:
+			self.pin_img = cv2.rotate(pin_ori_img, cv2.ROTATE_90_CLOCKWISE)
+		elif CONFIG['map_orientation'] == ORIENTATION['CLOCKWISE180']:
+			self.pin_img = cv2.rotate(pin_ori_img, cv2.ROTATE_180)
+		elif CONFIG['map_orientation'] == ORIENTATION['CLOCKWISE270']:
+			self.pin_img = cv2.rotate(pin_ori_img, cv2.ROTATE_90_COUNTERCLOCKWISE)
+		else:
+			self.pin_img = pin_ori_img
 		self.pos_icon_offset_x = CONFIG['cur_pos_icon_shape'][0] // 2
-		self.pos_icon_offset_y = CONFIG['cur_pos_icon_shape'][1]
+		self.pos_icon_offset_y = CONFIG['cur_pos_icon_shape'][1] // 2
 
 		self.button_group = QButtonGroup(self)
 		for idx in range(len(CONFIG['display_stops'])):
@@ -135,23 +142,25 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 			self.edit_pos_param.emit(self.map_ori_x, self.map_ori_y, self.map_resolution)
 			self.placeButton()
 
-	@Slot(str, int, int)
-	def updatePos(self, bot_name, map_x, map_y):
+	@Slot(str, int, int, float)
+	def updatePos(self, bot_name, map_x, map_y, orientation):
 		if self.bots.get(bot_name) is None:
 			self.ui.comboBoxBot.addItem(bot_name)
 			self.bots[bot_name] = {
 				'pin_label': QLabel(self.ui.widgetMap),
 				'name_label': QLabel(self.ui.widgetMap)
 			}
-			self.bots[bot_name]['pin_label'].setPixmap(self.pin_img)
-			self.bots[bot_name]['pin_label'].setMask(self.pin_img_mask)
+			pos_label_img = QPixmap.fromImage(QImage(self.pin_img, CONFIG['cur_pos_icon_shape'][0], CONFIG['cur_pos_icon_shape'][1],
+				CONFIG['cur_pos_icon_shape'][0]*4, QImage.Format_ARGB32))
+			self.bots[bot_name]['pin_label'].setPixmap(pos_label_img)
+			self.bots[bot_name]['pin_label'].setMask(pos_label_img.mask())
 			self.bots[bot_name]['pin_label'].setGeometry(QRect(self.map_ori_x - self.pos_icon_offset_x, self.map_ori_y - self.pos_icon_offset_y,
 				CONFIG['cur_pos_icon_shape'][0], CONFIG['cur_pos_icon_shape'][1]))
 			self.bots[bot_name]['pin_label'].show()
 
 			self.bots[bot_name]['name_label'].setText(bot_name)
 			self.bots[bot_name]['name_label'].setAlignment(Qt.AlignCenter)
-			self.bots[bot_name]['name_label'].setGeometry(QRect(self.map_ori_x - self.pos_icon_offset_x, self.map_ori_y - self.pos_icon_offset_y,
+			self.bots[bot_name]['name_label'].setGeometry(QRect(self.map_ori_x - self.pos_icon_offset_x, self.map_ori_y - 13,
 				CONFIG['cur_pos_icon_shape'][0], 26))
 			self.bots[bot_name]['name_label'].show()
 		elif map_x < 0 and self.bots.get(bot_name) is not None:
@@ -160,12 +169,21 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 			self.bots[bot_name]['name_label'].setParent(None)
 			_ = self.bots.pop(bot_name)
 		else:
-			map_x -= self.pos_icon_offset_x
-			map_y -= self.pos_icon_offset_y
-			self.bots[bot_name]['pin_label'].setGeometry(QRect(map_x, map_y, CONFIG['cur_pos_icon_shape'][0], CONFIG['cur_pos_icon_shape'][1]))
-			self.bots[bot_name]['pin_label'].setMask(self.pin_img_mask)
+			rot_mat = cv2.getRotationMatrix2D((self.pos_icon_offset_x, self.pos_icon_offset_y), orientation, 1.0)
+			pos_label_img = QPixmap.fromImage(
+				QImage(
+					cv2.warpAffine(self.pin_img, rot_mat, (CONFIG['cur_pos_icon_shape'][0], CONFIG['cur_pos_icon_shape'][1])),
+					CONFIG['cur_pos_icon_shape'][0], CONFIG['cur_pos_icon_shape'][1],
+					CONFIG['cur_pos_icon_shape'][0]*4, QImage.Format_ARGB32
+				)
+			)
+			self.bots[bot_name]['pin_label'].clear()
+			self.bots[bot_name]['pin_label'].setPixmap(pos_label_img)
+			self.bots[bot_name]['pin_label'].setMask(pos_label_img.mask())
 
-			self.bots[bot_name]['name_label'].setGeometry(QRect(map_x, map_y, CONFIG['cur_pos_icon_shape'][0], 26))
+			map_x -= self.pos_icon_offset_x
+			self.bots[bot_name]['pin_label'].setGeometry(QRect(map_x, map_y - self.pos_icon_offset_y, CONFIG['cur_pos_icon_shape'][0], CONFIG['cur_pos_icon_shape'][1]))
+			self.bots[bot_name]['name_label'].setGeometry(QRect(map_x, map_y - 13, CONFIG['cur_pos_icon_shape'][0], 26))
 			self.bots[bot_name]['name_label'].raise_()
 
 	@Slot(str, str, str, bool)
