@@ -148,7 +148,7 @@ class PosUpdaterThread(QThread):
 		current_time = time()
 		for bot in bots:
 			if current_time - self.fleet[bot] > GET_POSE_TOLERANCE:
-				self.update_signal.emit(bot, -1, -1)
+				self.update_signal.emit(bot, -1, -1, 0.0)
 				_ = self.fleet.pop(bot)
 
 	def run(self):

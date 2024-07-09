@@ -168,7 +168,6 @@ class TaskServer(Node):
 		send_future.add_done_callback(self._sendGoalResult)
 
 	def _sendGoalResult(self, future):
-		self.get_logger().info(f'recv send goal future')
 		pass
 
 	def _publishResponse(self, task_uuid, bot_name, status):

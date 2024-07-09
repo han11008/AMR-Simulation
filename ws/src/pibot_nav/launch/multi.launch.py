@@ -6,6 +6,7 @@ from launch.conditions import IfCondition
 from launch.actions import ExecuteProcess, DeclareLaunchArgument, GroupAction
 from launch_ros.actions import Node, PushRosNamespace, SetRemap
 from nav2_common.launch import RewrittenYaml
+import re, yaml
 
 ROBOTS = {
 	'bot1': [-0.2, 0.2, 0.0],
@@ -33,12 +34,17 @@ def generate_launch_description():
 	bond_timeout = LaunchConfiguration('bond_timeout', default='6.0')
 	remappings = [('/tf', 'tf'), ('/tf_static', 'tf_static')]
 
+	nav2_param_path = os.path.join(pkg_share, 'param/nav2_params_multi.yaml')
 	bt_path = os.path.join(pkg_share, 'bt/nav2pose_pibot.xml')
 	lifecycle_nodes = ['amcl',
 			'controller_server',
 			'planner_server',
 			'behavior_server',
 			'bt_navigator']
+
+	nav2_param_content = yaml.safe_load(open(nav2_param_path, 'r'))
+	footprint = nav2_param_content['local_costmap']['local_costmap']['ros__parameters']['footprint']
+	footprint = list(filter(None, re.split('[\[\], ]', footprint)))
 
 	# ======================== robot setup ========================
 	robot_path = os.path.join(pkg_share, 'urdf/sim_bot.urdf')
@@ -70,6 +76,19 @@ def generate_launch_description():
 				remappings = remappings
 			)
 		)
+
+		for idx in range(0, len(footprint), 2):
+			point = idx // 2
+			ld.add_action(
+				Node(
+					package = 'tf2_ros',
+					executable = 'static_transform_publisher',
+					name = f'tf_footprint_{point}',
+					namespace = bot_name,
+					arguments = f'--x {footprint[idx]} --y {footprint[idx+1]} --frame-id base_footprint --child-frame-id footprint_{point}'.split(' '),
+					remappings = remappings
+				)
+			)
 	# =============================================================
 
 	# ======================== map server =========================
@@ -188,15 +207,15 @@ def generate_launch_description():
 	
 	# ======================== Nav2 stack =========================
 	for bot_name in ROBOTS.keys():
-		nav2_param_path = RewrittenYaml(
-			source_file = os.path.join(pkg_share, 'param/nav2_params_multi.yaml'),
+		nav2_param = RewrittenYaml(
+			source_file = nav2_param_path,
 			root_key = bot_name,
 			param_rewrites = {'default_nav_to_pose_bt_xml': bt_path,
 					'use_sim_time': use_sim_time},
 			convert_types = True
 		)
 
-		planner_w_keepout_param_path = RewrittenYaml(
+		planner_w_keepout_param = RewrittenYaml(
 			source_file = os.path.join(pkg_share, 'param/planner_w_keepout.yaml'),
 			root_key = bot_name,
 			param_rewrites = {'use_sim_time': use_sim_time},
@@ -232,7 +251,7 @@ def generate_launch_description():
 					emulate_tty = True,
 					respawn = True,
 					respawn_delay = 2.0,
-					parameters = [nav2_param_path],
+					parameters = [nav2_param],
 					remappings = remappings,
 					output = 'screen'
 				),
@@ -244,7 +263,7 @@ def generate_launch_description():
 					emulate_tty = True,
 					respawn = True,
 					respawn_delay = 2.0,
-					parameters = [nav2_param_path],
+					parameters = [nav2_param],
 					remappings = remappings,
 					output = 'screen'
 				),
@@ -257,7 +276,7 @@ def generate_launch_description():
 					emulate_tty = True,
 					respawn = True,
 					respawn_delay = 2.0,
-					parameters = [nav2_param_path],
+					parameters = [nav2_param],
 					remappings = remappings,
 					output = 'screen'
 				),
@@ -270,7 +289,7 @@ def generate_launch_description():
 					emulate_tty = True,
 					respawn = True,
 					respawn_delay = 2.0,
-					parameters = [planner_w_keepout_param_path],
+					parameters = [planner_w_keepout_param],
 					remappings = remappings,
 					output = 'screen'
 				),
@@ -282,7 +301,7 @@ def generate_launch_description():
 					emulate_tty = True,
 					respawn = True,
 					respawn_delay = 2.0,
-					parameters = [nav2_param_path],
+					parameters = [nav2_param],
 					remappings = remappings,
 					output = 'screen'
 				),
@@ -294,7 +313,7 @@ def generate_launch_description():
 					emulate_tty = True,
 					respawn = True,
 					respawn_delay = 2.0,
-					parameters = [nav2_param_path],
+					parameters = [nav2_param],
 					remappings = remappings,
 					output = 'screen'
 				)

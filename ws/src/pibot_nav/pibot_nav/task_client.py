@@ -3,7 +3,7 @@ from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, Point32
 from nav2_msgs.msg import CollisionDetectorState
 from rclpy.action.client import ActionClient
 from action_msgs.msg import GoalStatus
@@ -33,6 +33,7 @@ SPEED = {
 }
 
 REQUEST_TF_PERIOD = 0.2
+NUM_FOOTPRINT_POINTS = 4
 
 class TaskClient(Node):
 	def __init__(self):
@@ -231,7 +232,8 @@ class TaskClient(Node):
 
 	def req_tf(self):
 		try:
-			tf = self.tf_buffer.lookup_transform('map', 'base_footprint', rclpy.time.Time())
+			req_time = rclpy.time.Time()
+			tf = self.tf_buffer.lookup_transform('map', 'base_footprint', req_time)
 			prev_x = self.pose_msg.current_pose.position.x
 			prev_y = self.pose_msg.current_pose.position.y
 
@@ -239,6 +241,12 @@ class TaskClient(Node):
 			self.pose_msg.current_pose.position.y = tf.transform.translation.y
 			self.pose_msg.current_pose.orientation.z = tf.transform.rotation.z
 			self.pose_msg.current_pose.orientation.w = tf.transform.rotation.w
+
+			self.pose_msg.footprint.points.clear()
+
+			for idx in range(NUM_FOOTPRINT_POINTS):
+				tf = self.tf_buffer.lookup_transform('map', f'footprint_{idx}', req_time)
+				self.pose_msg.footprint.points.append(Point32(x=tf.transform.translation.x, y=tf.transform.translation.y))
 
 			self.pose_pub.publish(self.pose_msg)
 		except:

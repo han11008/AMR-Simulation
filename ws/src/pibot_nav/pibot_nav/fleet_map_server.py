@@ -38,13 +38,29 @@ class FleetMapServer(Node):
 			if self.fleet_members.get(member) is None:
 				self.fleet_members[member] = {
 					'footprint': [],
-					'sub': self.create_subscription(PolygonStamped, f'/{member}/global_costmap/published_footprint',
-						lambda footprint_msg: self.getFootprint(footprint_msg, member), 1, callback_group=self.sub_footprint_cbg),
 					'last_time': time()
 				}
+				self.getFootprint(member, msg.footprint.points)
 				self.get_logger().info(f'Register fleet member {member}')
 			else:
 				self.fleet_members[member]['last_time'] = time()
+				self.getFootprint(member, msg.footprint.points)
+
+	def getFootprint(self, member, points):
+		if self.origin_point is not None:
+			min_x, max_x, min_y, max_y = inf, 0, inf, 0
+			for point in points:
+				x = round(self.origin_point[0] + (point.x / self.map_msg.info.resolution))
+				y = round(self.origin_point[1] - (point.y / self.map_msg.info.resolution))
+				min_x = min(x, min_x)
+				max_x = max(x, max_x)
+				min_y = min(y, min_y)
+				max_y = max(y, max_y)
+			rect = np.mgrid[min_x:max_x+1, min_y:max_y+1].reshape(2, -1).transpose()
+			self.fleet_members[member]['footprint'] = []
+			for coor in rect:
+				x, y = coor
+				self.fleet_members[member]['footprint'].append((x, y))
 
 	def getMap(self, msg):
 		self.map_msg.info.resolution = msg.info.resolution
@@ -76,26 +92,6 @@ class FleetMapServer(Node):
 					idx = self.map_msg.info.width * (self.map_msg.info.height - y - 1) + x
 					self.map_msg.data[idx] = CELL_OCCUPIED
 			self.fleet_map_pub.publish(self.map_msg)
-
-	def getFootprint(self, msg, member):
-		if self.origin_point is not None:
-			min_x, max_x, min_y, max_y = inf, 0, inf, 0
-			for point in msg.polygon.points:
-				x = round(self.origin_point[0] + (point.x / self.map_msg.info.resolution))
-				y = round(self.origin_point[1] - (point.y / self.map_msg.info.resolution))
-				if x < min_x:
-					min_x = x
-				if x > max_x:
-					max_x = x
-				if y < min_y:
-					min_y = y
-				if y > max_y:
-					max_y = y
-			rect = np.mgrid[min_x:max_x+1, min_y:max_y+1].reshape(2, -1).transpose()
-			self.fleet_members[member]['footprint'] = []
-			for coor in rect:
-				x, y = coor
-				self.fleet_members[member]['footprint'].append((x, y))
 
 def main(args=None):
 	rclpy.init()
