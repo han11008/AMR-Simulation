@@ -9,9 +9,9 @@ from fleet_msgs.srv import TaskArrange, TaskRequest
 from math import sqrt, inf
 from time import time
 
-FLEET_CHECK_TIMER = 0.2
+FLEET_CHECK_PERIOD = 0.2
 GET_POSE_TOLERANCE = 3.0
-GOAL_OCCUPANCY_DIST = 0.6
+GOAL_OCCUPANCY_DIST = 0.5
 
 class TaskServer(Node):
 	def __init__(self):
@@ -32,7 +32,7 @@ class TaskServer(Node):
 		self.task_response_pub = self.create_publisher(TaskResponse, '/task_response', transient_qos, callback_group=bot_status_cbg)
 
 		self.task_arrange_cbg = MutuallyExclusiveCallbackGroup()
-		self.fleet_check_timer = self.create_timer(FLEET_CHECK_TIMER, self.fleetCheck, callback_group=self.task_arrange_cbg)
+		self.fleet_check_timer = self.create_timer(FLEET_CHECK_PERIOD, self.fleetCheck, callback_group=self.task_arrange_cbg)
 
 	def getTask(self, request, response):
 		if request.cancel:

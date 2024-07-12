@@ -13,7 +13,6 @@ from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 from fleet_msgs.msg import TaskCommand, TaskStatus, BotPose, BotReport
 from fleet_msgs.srv import TaskArrange
-from time import time, sleep
 
 CD_POLY = {
 	'left_front': 'PolygonLeftFront',
@@ -44,11 +43,10 @@ class TaskClient(Node):
 
 		self.bot_name = self.get_namespace().split('/')[-1]
 
-		self.recv_cmd_time = time()
 		self.twist_msg_val = (0.0, 0.0) # (linear.x, angular.z)
-		self.is_stop = True
-		self.collision_detected = False
+		self.executing_task = False
 		self.task_paused = False
+		self.collision_detected = False
 		nav_cbg = MutuallyExclusiveCallbackGroup()
 		self.nav_cmd_sub = self.create_subscription(Twist, 'cmd_vel', self.passCtrlCmd, 10, callback_group=nav_cbg)
 
@@ -81,11 +79,8 @@ class TaskClient(Node):
 		self.req_tf_timer = self.create_timer(REQUEST_TF_PERIOD, self.req_tf, callback_group=tf_cbg)
 
 	def passCtrlCmd	(self, msg):
-		self.recv_cmd_time = time()
 		if not self.collision_detected and not self.task_paused:
 			if msg.linear.x != 0 or msg.angular.z != 0:
-				self.is_stop = False
-
 				vel_is_pos = (msg.linear.x >= 0)
 				if vel_is_pos:
 					vel_insuff = (LINEAR_THRES - msg.linear.x) / LINEAR_THRES
@@ -105,55 +100,49 @@ class TaskClient(Node):
 					else:
 						msg.linear.x = 0.0
 						msg.angular.z = ANGULAR_THRES if theta_is_pos else -ANGULAR_THRES
-			else:
-				self.is_stop = True
 			self.twist_msg_val = (msg.linear.x, msg.angular.z)
 
 	def confCDState(self, msg):
 		if self.task_paused:
 			self.twist_msg_val = (0.0, 0.0)
 			self.sendCmd()
-			self.is_stop = True
 
-		elif time() - self.recv_cmd_time <= 0.5:
-			cd = dict(zip(msg.polygons, msg.detections))
-			if cd[CD_POLY['left_front']]:
-				self.collision_detected = True
-				self.is_stop = False
-				if cd[CD_POLY['left_back']] and cd[CD_POLY['right_back']]:
-					self.twist_msg_val = (0.0, 0.0)
-				elif cd[CD_POLY['left_back']]:
-					self.twist_msg_val = (SPEED['backward'], SPEED['turn_left'] / 2)
-				elif cd[CD_POLY['right_back']]:
-					self.twist_msg_val = (0.0, SPEED['turn_right'])
-				else:
-					self.twist_msg_val = (SPEED['backward'], SPEED['turn_right'] / 2)
-
-			elif cd[CD_POLY['right_front']]:
-				self.collision_detected = True
-				self.is_stop = False
-				if cd[CD_POLY['left_back']] and cd[CD_POLY['right_back']]:
-					self.twist_msg_val = (0.0, 0.0)
-				elif cd[CD_POLY['right_back']]:
-					self.twist_msg_val = (SPEED['backward'], SPEED['turn_right'] / 2)
-				elif cd[CD_POLY['left_back']]:
-					self.twist_msg_val = (0.0, SPEED['turn_left'])
-				else:
-					self.twist_msg_val = (SPEED['backward'], SPEED['turn_left'] / 2)
-
-			elif cd[CD_POLY['left_back']] or cd[CD_POLY['right_back']]:
-				self.collision_detected = True
-				self.is_stop = False
-				self.twist_msg_val = (SPEED['forward'], 0.0)
+		elif self.executing_task:
+			if self.goal_handle is None:
+				self.twist_msg_val = (0.0, 0.0)
+				self.executing_task = False
 
 			else:
-				self.collision_detected = False
-			self.sendCmd()
+				cd = dict(zip(msg.polygons, msg.detections))
+				if cd[CD_POLY['left_front']]:
+					self.collision_detected = True
+					if cd[CD_POLY['left_back']] and cd[CD_POLY['right_back']]:
+						self.twist_msg_val = (0.0, 0.0)
+					elif cd[CD_POLY['left_back']]:
+						self.twist_msg_val = (SPEED['backward'], SPEED['turn_left'] / 2)
+					elif cd[CD_POLY['right_back']]:
+						self.twist_msg_val = (0.0, SPEED['turn_right'])
+					else:
+						self.twist_msg_val = (SPEED['backward'], SPEED['turn_right'] / 2)
 
-		elif not self.is_stop:
-			self.twist_msg_val = (0.0, 0.0)
+				elif cd[CD_POLY['right_front']]:
+					self.collision_detected = True
+					if cd[CD_POLY['left_back']] and cd[CD_POLY['right_back']]:
+						self.twist_msg_val = (0.0, 0.0)
+					elif cd[CD_POLY['right_back']]:
+						self.twist_msg_val = (SPEED['backward'], SPEED['turn_right'] / 2)
+					elif cd[CD_POLY['left_back']]:
+						self.twist_msg_val = (0.0, SPEED['turn_left'])
+					else:
+						self.twist_msg_val = (SPEED['backward'], SPEED['turn_left'] / 2)
+
+				elif cd[CD_POLY['left_back']] or cd[CD_POLY['right_back']]:
+					self.collision_detected = True
+					self.twist_msg_val = (SPEED['forward'], 0.0)
+
+				else:
+					self.collision_detected = False
 			self.sendCmd()
-			self.is_stop = True
 
 	def sendCmd(self):
 		twist_msg = Twist()
@@ -212,6 +201,7 @@ class TaskClient(Node):
 			self._publishStatus()
 			self.goal_handle = request_permission.get_result_async()
 			self.goal_handle.add_done_callback(self._finishTask)
+			self.executing_task = True
 		else:
 			self.status_report.task_status.status = TaskStatus.TASK_ABORTED
 			self._publishStatus()
