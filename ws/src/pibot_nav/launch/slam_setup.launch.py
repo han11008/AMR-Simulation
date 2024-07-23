@@ -16,7 +16,7 @@ def generate_launch_description():
 
 	# ====================== robot setup =======================
 	robot_path = os.path.join(pkg_share, 'urdf/sim_bot.urdf')
-	world_path = os.path.join(pkg_share, 'world/sw.sdf')
+	world_path = os.path.join(pkg_share, 'world/test.sdf')
 
 	gazebo_node = ExecuteProcess(
 		cmd = f'gazebo {world_path} -s libgazebo_ros_init.so -s libgazebo_ros_factory.so'.split(' '),

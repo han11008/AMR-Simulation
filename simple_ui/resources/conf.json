@@ -22,12 +22,12 @@
         30,
         30
     ],
-    "map_resolution": 0.025,
+    "map_resolution": 0.0125,
     "map_orientation": 0,
     "map_image": "resources/map.png",
     "map_image_shape": [
-        504,
-        776
+        220,
+        380
     ],
     "phy_stop_coors": [
         [
@@ -35,50 +35,41 @@
             0.0
         ],
         [
-            1.125,
-            2.975
+            1.275,
+            3.425
         ],
         [
-            -5.575,
-            2.0
+            1.375,
+            0.4
         ],
         [
-            -6.0,
-            -2.425
-        ],
-        [
-            0.775,
-            -4.725
+            -0.175,
+            3.325
         ]
     ],
     "map_origin_point": [
-        372,
-        172
+        63,
+        321
     ],
     "display_stops": [
         [
-            372,
-            172,
+            63,
+            321,
             "resources/left_top.png"
         ],
         [
-            417,
-            53,
+            165,
+            47,
             "resources/left_top.png"
         ],
         [
-            149,
-            92,
+            173,
+            289,
             "resources/left_top.png"
         ],
         [
-            132,
-            269,
-            "resources/left_top.png"
-        ],
-        [
-            403,
-            361,
+            49,
+            55,
             "resources/left_top.png"
         ]
     ]

@@ -9,9 +9,9 @@ from nav2_common.launch import RewrittenYaml
 import re, yaml
 
 ROBOTS = {
-	'bot1': [-0.2, 0.2, 0.0],
-	'bot2': [1.0, 3.0, 0.0],
-#	'bot3': [-4.6, 3.0, -1.57]
+	'bot1': [0.2, -0.2, 0.0],
+	'bot2': [1.0, 3.4, 0.0],
+#	'bot3': [0.0, 2.0, 1.57]
 }
 
 def generate_launch_description():
@@ -48,7 +48,7 @@ def generate_launch_description():
 
 	# ======================== robot setup ========================
 	robot_path = os.path.join(pkg_share, 'urdf/sim_bot.urdf')
-	world_path = os.path.join(pkg_share, 'world/sw.sdf')
+	world_path = os.path.join(pkg_share, 'world/test.sdf')
 
 	gazebo_node = ExecuteProcess(
 		cmd = f'gazebo {world_path} -s libgazebo_ros_init.so -s libgazebo_ros_factory.so'.split(' '),
