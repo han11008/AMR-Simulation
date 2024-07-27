@@ -16,7 +16,7 @@ amcl:
     laser_max_range: 12.0
     laser_min_range: 0.15
     laser_model_type: "likelihood_field"
-    max_beams: 180
+    max_beams: 120
     max_particles: 2000
     min_particles: 500
     odom_frame_id: odom
@@ -108,7 +108,7 @@ bt_navigator:
 controller_server:
   ros__parameters:
     use_sim_time: False
-    controller_frequency: 5.0
+    controller_frequency: 8.0
     transform_tolerance: 2.0
     min_x_velocity_threshold: 0.01
     min_theta_velocity_threshold: 0.01
@@ -135,7 +135,7 @@ controller_server:
       iteration_count: 1
       batch_size: 500
       time_steps: 56
-      model_dt: 0.2
+      model_dt: 0.125
       vx_std: 0.15
       vy_std: 0.0
       wz_std: 0.6
@@ -150,7 +150,7 @@ controller_server:
       visualize: False
       retry_attempt_limit: 2
       regenerate_noises: True
-      critics: [ConstraintCritic, CostCritic,
+      critics: [ConstraintCritic, CostCritic, GoalCritic,
         PathAlignCritic, PathFollowCritic, PathAngleCritic]
       ConstraintCritic:
         enabled: True
@@ -165,18 +165,18 @@ controller_server:
         near_goal_distance: 0.3
         trajectory_point_step: 5 # step to take in trajectory for evaluating
         consider_footprint: False # whether to consider the footprint overlaps INSCRIBED_INFLATED_OBSTACLE(will cause stucking)
-#      GoalCritic:
-#        enabled: True
-#        cost_power: 1
-#        cost_weight: 5.0
-#        threshold_to_consider: 1.0 # distance in meters between robot and goal to start consider GoalCritic
+      GoalCritic:
+        enabled: True
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 0.5 # distance in meters between robot and goal to start consider GoalCritic
       PathAlignCritic:
         enabled: True
         cost_power: 1
         cost_weight: 10.0
         max_path_occupancy_ratio: 0.05 # maximum proportion that can be occupied by obstacles
         trajectory_point_step: 4
-        threshold_to_consider: 0.0 # distance in meters between robot and goal to stop and allow GoalCritic to take over
+        threshold_to_consider: 0.5 # distance in meters between robot and goal to stop and allow GoalCritic to take over
         offset_from_furthest: 20 # checks the candidate trajectories are sufficiently far
         use_path_orientations: False # keep False for Navfn planner
       PathFollowCritic:
@@ -184,21 +184,21 @@ controller_server:
         cost_power: 1
         cost_weight: 5.0
         offset_from_furthest: 5
-        threshold_to_consider: 0.3 # distance in meters between robot and goal to stop and allow GoalCritic to take over
+        threshold_to_consider: 0.5 # distance in meters between robot and goal to stop and allow GoalCritic to take over
       PathAngleCritic:
         enabled: True
         cost_power: 1
         cost_weight: 2.2
         offset_from_furthest: 5
-        threshold_to_consider: 0.0 # distance in meters between robot and goal to stop and allow GoalCritic to take over
-        max_angle_to_furthest: 0.7
+        threshold_to_consider: 0.5 # distance in meters between robot and goal to stop and allow GoalCritic to take over
+        max_angle_to_furthest: 1.0
         forward_preference: True
 
 local_costmap:
   local_costmap:
     ros__parameters:
       update_frequency: 5.0
-      publish_frequency: 3.0
+      publish_frequency: 5.0
       transform_tolerance: 2.0
       map_topic: /modified_map
       global_frame: odom
@@ -249,7 +249,8 @@ global_costmap:
       use_sim_time: False
       track_unknown_space: True
       resolution: 0.05
-      robot_radius: 0.18
+      robot_radius: 0.18 # the value should be width_of_robot/2
+      footprint_padding: 0.03
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"

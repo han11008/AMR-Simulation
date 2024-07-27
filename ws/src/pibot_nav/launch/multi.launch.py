@@ -35,7 +35,7 @@ def generate_launch_description():
 	remappings = [('/tf', 'tf'), ('/tf_static', 'tf_static')]
 
 	nav2_param_path = os.path.join(pkg_share, 'param/nav2_params_multi.yaml')
-	bt_path = os.path.join(pkg_share, 'bt/nav2pose_pibot.xml')
+	bt_path = os.path.join(pkg_share, 'bt/nav2pose_replan_invalid.xml')
 	lifecycle_nodes = ['amcl',
 			'controller_server',
 			'planner_server',
