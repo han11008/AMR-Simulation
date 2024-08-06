@@ -10,8 +10,8 @@ global_costmap:
       use_sim_time: False
       track_unknown_space: True
       resolution: 0.05
-      footprint: "[ [0.08, 0.18], [0.08, -0.18], [-0.32, -0.18], [-0.32, 0.18] ]"
-      footprint_padding: 0.01
+      robot_radius: 0.18 # the value should be width_of_robot/2
+      footprint_padding: 0.03
       plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
