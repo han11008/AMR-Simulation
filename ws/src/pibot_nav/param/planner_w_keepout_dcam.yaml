@@ -1,0 +1,74 @@
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      update_frequency: 5.0
+      publish_frequency: 5.0
+      transform_tolerance: 2.0
+      map_topic: /modified_map
+      global_frame: map
+      robot_base_frame: base_footprint
+      use_sim_time: False
+      track_unknown_space: True
+      resolution: 0.05
+      robot_radius: 0.18 # the value should be width_of_robot/2
+      footprint_padding: 0.03
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: True
+        transform_tolerance: 2.0
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: True
+        observation_sources: scan pointcloud
+        scan:
+          topic: /scan
+          max_obstacle_height: 2.0
+          min_obstacle_height: 0.0
+          clearing: True
+          marking: True
+          data_type: "LaserScan"
+          raytrace_max_range: 12.0
+          raytrace_min_range: 0.15
+          obstacle_max_range: 3.0
+          obstacle_min_range: 0.15
+          source_timeout: 0.0
+        pointcloud:
+          topic: /cloud_obstacles
+          max_obstacle_height: 0.5
+          min_obstacle_height: 0.03
+          clearing: True
+          marking: True
+          data_type: "PointCloud2"
+          raytrace_max_range: 2.5
+          raytrace_min_range: 0.0
+          obstacle_max_range: 2.5
+          obstacle_min_range: 0.0
+          source_timeout: 0.0
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.35
+      filters: ["keepout_filter", "keepout_inflation_layer"]
+      keepout_filter:
+        plugin: "nav2_costmap_2d::KeepoutFilter"
+        enabled: True
+        filter_info_topic: /costmap_filter_info
+      keepout_inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        enabled: True
+        cost_scaling_factor: 3.0
+        inflation_radius: 0.35
+      always_send_full_costmap: True
+
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 2.0
+    use_sim_time: False
+    transform_tolerance: 2.0
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 0.1 # tolerance in meters between the goal and the end of planned path
+      use_astar: False
+      allow_unknown: True
