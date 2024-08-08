@@ -8,9 +8,10 @@ from action_msgs.msg import GoalStatusArray, GoalStatus
 from action_msgs.srv import CancelGoal
 from nav2_msgs.action import NavigateToPose
 from geometry_msgs.msg import PoseStamped
-from std_msgs.msg import Float64MultiArray, String, Bool
+from std_msgs.msg import String
+from task_msgs.srv import TaskRequest, CancelRequest
 
-FEEDBACK_TIMEOUT = 10.0
+CHECK_NAV2_PERIOD = 8.0
 
 class GoalSender(Node):
 	def __init__(self):
@@ -18,21 +19,19 @@ class GoalSender(Node):
 		nav2_cbg = MutuallyExclusiveCallbackGroup()
 		qos = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
 		self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose', callback_group=nav2_cbg, feedback_sub_qos_profile=qos)
-		self.bt_navigator_status = self.create_subscription(GoalStatusArray, 'navigate_to_pose/_action/status', self.assistGetStatus, 1, callback_group=nav2_cbg)
+		self.nav_cancel_requester = self.create_client(CancelGoal, 'navigate_to_pose/_action/cancel_goal', callback_group=nav2_cbg)
 
 		self.nav2_alive = False # Whether receive feedback from bt_navigator
-		self.in_nav_task = False # Determine whether monitoring a task for check_nav2_timer
 		self.prev_goal_msg = None # Prevent sending repeated goals
 		self.goals = [] # Store goal coordinates with tuples
 		self.preempt_goals = [] # Store the latest received task if it comes during the execution of the previous one
 		self.cur_goal = None
 		self.goal_handle = None
-		self.nav_cancel_requester = None
 		self.end_succ = True # Determine the task is cancelled or succeeded
 
 		cmd_cbg = MutuallyExclusiveCallbackGroup()
-		self.cmd_listener = self.create_subscription(Float64MultiArray, 'nav_goals', self.arrangeTasks, 1, callback_group=cmd_cbg)
-		self.cancel_listener = self.create_subscription(Bool, 'nav_cancel', self.cancelTasks, 1, callback_group=cmd_cbg)
+		self.cmd_listener = self.create_service(TaskRequest, 'nav_goals', self.arrangeTasks, callback_group=cmd_cbg)
+		self.cancel_listener = self.create_service(CancelRequest, 'nav_cancel', self.cancelTasks, callback_group=cmd_cbg)
 
 		self.feedback = String()
 		self.nav_feedback_reporter = self.create_publisher(String, 'nav_feedback', 1, callback_group=cmd_cbg)
@@ -40,47 +39,38 @@ class GoalSender(Node):
 		wait_cbg = MutuallyExclusiveCallbackGroup()
 		self.wait_clear_timer = self.create_timer(1.0, self._assignGoals, callback_group=wait_cbg)
 		timer_cbg = MutuallyExclusiveCallbackGroup()
-		self.check_nav2_timer = self.create_timer(FEEDBACK_TIMEOUT, self._checkNav2Callback, callback_group=timer_cbg)
+		self.check_nav2_timer = self.create_timer(CHECK_NAV2_PERIOD, self._checkNav2Callback, callback_group=timer_cbg)
 
-	def assistGetStatus(self, msg):
-		if msg.status_list[-1].status == GoalStatus.STATUS_CANCELING:
-			self.goals = []
-			self.end_succ = False
-			self._publishFeedback('Cancelling navigation task...')
-
-	def arrangeTasks(self, msg):
-		if msg == self.prev_goal_msg:
-			return
-
-		self.prev_goal_msg = msg
-
+	def arrangeTasks(self, req, res):
 		self.preempt_goals = []
-		for idx in range(0, len(msg.data), 2):
+		for idx in range(0, len(req.goals), 2):
 			goal = PoseStamped()
 			goal.header.frame_id = 'map'
-			goal.pose.position.x = msg.data[idx]
-			goal.pose.position.y = msg.data[idx+1]
+			goal.pose.position.x = req.goals[idx]
+			goal.pose.position.y = req.goals[idx+1]
 			self.preempt_goals.append(goal)
 
 		self._sendCancelRequest()
+		res.accept = True
+		return res
 
-	def cancelTasks(self, msg):
-		if msg.data:
+	def cancelTasks(self, req, res):
+		if req.cancel:
 			self._sendCancelRequest()
+		res.accept = True
+		return res
 
 	def _sendCancelRequest(self):
-		if self.goal_handle is not None and self.nav_cancel_requester is None:
-			self.nav_cancel_requester = self.create_client(CancelGoal, 'navigate_to_pose/_action/cancel_goal')
+		if self.goal_handle is not None:
 			count = 0
 			while not self.nav_cancel_requester.wait_for_service(timeout_sec=1.5):
 				count += 1
 				if count >= 5:
-					self.feedback.data = 'Navigation cancel server has no response, please try again later'
-					self.nav_cancel_requester = None
+					self._publishFeedback('Navigation cancel server has no response, please try again later')
 					return
 			self._publishFeedback('Sending cancel request...')
+			self.goals = []
 			_ = self.nav_cancel_requester.call(CancelGoal.Request())
-			self.nav_cancel_requester = None
 
 	def _assignGoals(self):
 		if self.goal_handle is None and self.preempt_goals:
@@ -100,8 +90,7 @@ class GoalSender(Node):
 				if log != '':
 					log += ', '
 				log += f'({goal.pose.position.x}, {goal.pose.position.y})'
-			log = 'Sending goals: [' + log + ']'
-			self._publishFeedback(log)
+			self._publishFeedback(f'Sending goals: [{log}]')
 			self._sendGoal()
 
 	def _sendGoal(self):
@@ -116,7 +105,6 @@ class GoalSender(Node):
 			send_future = self.nav_client.send_goal_async(nav_req, self._feedbackCallback)
 			send_future.add_done_callback(self._sendGoalResult)
 			self.nav2_alive = True
-			self.in_nav_task = True
 
 	def _sendGoalResult(self, future):
 		request_permission = future.result()
@@ -128,14 +116,15 @@ class GoalSender(Node):
 		else:
 			self._publishFeedback('Navigation task is rejected')
 
-	def _finishTask(self, future): # completed or cancelled
-		if self.end_succ:
+	def _finishTask(self, future):
+		if future.result().status == GoalStatus.STATUS_SUCCEEDED:
 			self._publishFeedback(f'Successfully finished navigation task: {self.cur_goal}')
-		else:
-			self._publishFeedback(f'Cancelled navigation task: {self.cur_goal}')
+		elif future.result().status == GoalStatus.STATUS_CANCELED:
+			self._publishFeedback(f'Navigation task to {self.cur_goal} is cancelled')
+		elif future.result().status == GoalStatus.STATUS_ABORTED or future.result().status == GoalStatus.STATUS_UNKNOWN:
+			self._publishFeedback(f'Navigation task to {self.cur_goal} is aborted')
 		self.goal_handle = None
 		self.prev_goal_msg = None
-		self.in_nav_task = False
 		self.cur_goal = None
 		if self.goals:
 			self._sendGoal()
@@ -151,11 +140,10 @@ class GoalSender(Node):
 		self._publishFeedback(f'Estimated time remaining: {msg.feedback.estimated_time_remaining.sec}.{msg.feedback.estimated_time_remaining.nanosec} s; Recoveries: {msg.feedback.number_of_recoveries}; Current goal: {self.cur_goal}')
 
 	def _checkNav2Callback(self):
-		if self.in_nav_task:
+		if self.goal_handle is not None:
 			if not self.nav2_alive:
 				self._publishFeedback('Navigation server has no response, the task is going to abort')
 				self._sendCancelRequest()
-				self.in_nav_task = False
 			self.nav2_alive = False
 
 	def _publishFeedback(self, log):

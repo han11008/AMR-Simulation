@@ -3,7 +3,8 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from rclpy.executors import SingleThreadedExecutor, MultiThreadedExecutor
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
-from std_msgs.msg import Float64MultiArray, String, Bool
+from std_msgs.msg import String
+from task_msgs.srv import TaskRequest, CancelRequest
 from sensor_msgs.msg import Image
 from nav_msgs.msg import Path
 from tf2_ros.buffer import Buffer
@@ -39,18 +40,14 @@ class NavDaemonThread(QThread):
 
 		self.node = Node(f'navigation_commander_{os.getpid()}')
 		# Send navigation goals to navigator_client with topic
-		self.cmd_cbg = MutuallyExclusiveCallbackGroup()
-		self.commander = self.node.create_publisher(Float64MultiArray, 'nav_goals', 1, callback_group=self.cmd_cbg)
-		self.nav_goal_msg = Float64MultiArray()
+		cmd_cbg = MutuallyExclusiveCallbackGroup()
+		
+		self.commander = self.node.create_client(TaskRequest, 'nav_goals', callback_group=cmd_cbg)
 		self.goals_to_assign = None
 		self.next_goal = None
-		self.send_goal_timer = None
 
-		# Send cancel request to navigator_client with topic
-		self.cancel_requester = self.node.create_publisher(Bool, 'nav_cancel', 1, callback_group=self.cmd_cbg)
-		self.cancel_req = Bool()
-		self.cancel_req.data = True
-		self.cancel_goal_timer = None
+		# Send cancel request to navigator_client with service
+		self.cancel_requester = self.node.create_client(CancelRequest, 'nav_cancel', callback_group=cmd_cbg)
 
 		# Monitor the status of navgation task through navigator_client with topic
 		fb_cbg = MutuallyExclusiveCallbackGroup()
@@ -77,33 +74,32 @@ class NavDaemonThread(QThread):
 				goals_flatten.append(x)
 				goals_flatten.append(y)
 
-			self.nav_goal_msg.data = goals_flatten
-			# Send navigation goals periodically since topics cannot ensure whether subscribers receive the message
-			self.resend_count = 0
-			self.send_goal_timer = self.node.create_timer(self.task_timeout, self._sendGoal, callback_group=self.cmd_cbg)
+			new_task = TaskRequest.Request()
+			new_task.goals = goals_flatten
+			count = 0
+			while not self.commander.wait_for_service(timeout_sec=1.5):
+				count += 1
+				if count > 5:
+					self.feedback.emit('Cannot start the navigation task since the server has no response, please try again later.', False)
+					self._taskEnded()
+					return
+			self.commander.call_async(new_task)
 
-	def _sendGoal(self):
-		if self.resend_count < self.max_resend:
-			self.commander.publish(self.nav_goal_msg)
-			self.resend_count += 1
-		else:
-			self.feedback.emit('Cannot start the navigation task since the server has no response, please try again later.', False)
-			self._taskEnded()
+	def _sendGoalResult(self, future):
+		pass
 
 	def cancelTask(self):
-		if self.cancel_goal_timer is None:
-			self.cancel_goal_timer = self.node.create_timer(self.task_timeout, self._cancelGoal, callback_group=self.cmd_cbg)
-
-	def _cancelGoal(self):
-		self.cancel_requester.publish(self.cancel_req)
+		while not self.cancel_requester.wait_for_service(timeout_sec=1.5):
+			count += 1
+			if count > 5:
+				self.feedback.emit('Cannot cancel the navigation task since the server has no response, please try again later.', False)
+				self._taskEnded()
+				return
+		cancel_req = CancelRequest.Request()
+		cancel_req.cancel = True
+		self.cancel_requester.call_async(cancel_req)
 
 	def _taskEnded(self):
-		if self.send_goal_timer is not None:
-			self.node.destroy_timer(self.send_goal_timer)
-			self.send_goal_timer = None
-		if self.cancel_goal_timer is not None:
-			self.node.destroy_timer(self.cancel_goal_timer)
-			self.cancel_goal_timer = None
 		if self.check_nav2_timer is not None:
 			self.node.destroy_timer(self.check_nav2_timer)
 			self.check_nav2_timer = None
@@ -132,25 +128,14 @@ class NavDaemonThread(QThread):
 		if msg.data.find('accepted') != -1:
 			self.feedback.emit(f'Navigating to position {self._getGoalId(msg.data)}...', True)
 
-			if self.send_goal_timer is not None:
-				# Stop sending navigation goals as navigator_client has received them
-				self.node.destroy_timer(self.send_goal_timer)
-				self.send_goal_timer = None
-
 			# Create a timer to check the status of navigation tasks
 			if self.check_nav2_timer is None:
 				timer_cbg = MutuallyExclusiveCallbackGroup()
 				self.check_nav2_timer = self.node.create_timer(self.wait_response_timeout, self._checkNav2Alive, callback_group=timer_cbg)
 
-		elif msg.data.find('Cancelled') != -1:
+		elif msg.data.find('cancelled') != -1:
 			self.feedback.emit(f'Navigation task to position {self._getGoalId(msg.data)} is cancelled.', False)
 			self._taskEnded()
-
-		# Stop sending the cancel request as navigator_client has received it
-		elif msg.data.find('Cancelling') != -1:
-			if self.cancel_goal_timer is not None:
-				self.node.destroy_timer(self.cancel_goal_timer)
-				self.cancel_goal_timer = None
 
 		elif msg.data.find('finished') != -1:
 			self.feedback.emit(f'Successfully reached position {self._getGoalId(msg.data)}.', False)
