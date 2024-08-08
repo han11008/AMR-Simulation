@@ -56,9 +56,7 @@ planner_server:
     transform_tolerance: 2.0
     planner_plugins: ["GridBased"]
     GridBased:
-      plugin: "nav2_theta_star_planner/ThetaStarPlanner"
-      how_many_corners: 8
+      plugin: "nav2_navfn_planner/NavfnPlanner"
+      tolerance: 0.1 # tolerance in meters between the goal and the end of planned path
+      use_astar: False
       allow_unknown: True
-      w_euc_cost: 1.0
-      w_traversal_cost: 2.0
-      use_final_approach_orientation: False
