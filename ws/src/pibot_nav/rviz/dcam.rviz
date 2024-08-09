@@ -357,9 +357,9 @@ Visualization Manager:
       Name: PointCloud2
       Position Transformer: XYZ
       Selectable: true
-      Size (Pixels): 5
-      Size (m): 0.07999999821186066
-      Style: Points
+      Size (Pixels): 3
+      Size (m): 0.03999999910593033
+      Style: Spheres
       Topic:
         Depth: 5
         Durability Policy: Volatile

@@ -202,8 +202,8 @@
 			<visualize>true</visualize>
 			<camera name="camera">
 				<image>
-					<width>160</width>
-					<height>120</height>
+					<width>640</width>
+					<height>480</height>
 					<format>RGB_INT8</format>
 				</image>
 			</camera>

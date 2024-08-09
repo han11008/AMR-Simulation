@@ -320,10 +320,10 @@
       <static>1</static>
     </model>
     <state world_name='default'>
-      <sim_time>176 584000000</sim_time>
-      <real_time>133 85536121</real_time>
-      <wall_time>1723096235 196839407</wall_time>
-      <iterations>132790</iterations>
+      <sim_time>382 974000000</sim_time>
+      <real_time>206 849225999</real_time>
+      <wall_time>1723180216 78682291</wall_time>
+      <iterations>206390</iterations>
       <model name='bochi'>
         <pose>0.802132 1.50956 0 0 -0 0</pose>
         <scale>1 1 1</scale>
@@ -369,13 +369,13 @@
         </link>
       </model>
       <model name='low_ob1'>
-        <pose>1.09451 1.61291 7e-06 4e-06 -2e-06 0</pose>
+        <pose>1.09451 1.61291 -1e-06 1e-05 1.2e-05 4e-06</pose>
         <scale>1 1 1</scale>
         <link name='link_3'>
-          <pose>0.792839 1.61504 0.1 0 0 -0.082457</pose>
+          <pose>0.792841 1.61504 0.099996 5e-06 1.5e-05 -0.082453</pose>
           <velocity>0 0 0 0 -0 0</velocity>
-          <acceleration>-0 0 -0 0 -0 0</acceleration>
-          <wrench>-0 0 -0 0 -0 0</wrench>
+          <acceleration>0 0 -9.8 0 -0 -4.7e-05</acceleration>
+          <wrench>0 0 -10.78 0 -0 0</wrench>
         </link>
       </model>
       <model name='low_ob2'>
@@ -384,8 +384,8 @@
         <link name='link_1'>
           <pose>1.45026 -0.081074 0.06 0 -0 0.173152</pose>
           <velocity>0 0 0 0 -0 0</velocity>
-          <acceleration>0 -0 0 0 -0 0</acceleration>
-          <wrench>0 -0 0 0 -0 0</wrench>
+          <acceleration>-0.464833 0.236323 8e-06 2.34448 -1.464 -1e-06</acceleration>
+          <wrench>-0.464833 0.236323 8e-06 0 -0 0</wrench>
         </link>
       </model>
       <model name='low_ob3'>
@@ -394,18 +394,18 @@
         <link name='link_0'>
           <pose>-0.146188 0.817383 0.099 0 0 -0.372782</pose>
           <velocity>0 0 0 0 -0 0</velocity>
-          <acceleration>0 0 0 -1e-06 3e-06 0</acceleration>
-          <wrench>0 0 0 0 -0 0</wrench>
+          <acceleration>4.8e-05 1.8e-05 0 -0.00018 0.000487 0</acceleration>
+          <wrench>2.7e-05 1e-05 0 0 -0 0</wrench>
         </link>
       </model>
       <model name='low_ob4'>
-        <pose>1.54275 2.51244 4e-06 4e-06 -2e-06 0</pose>
+        <pose>1.54275 2.35119 4e-06 4e-06 -2e-06 0</pose>
         <scale>1 1 1</scale>
         <link name='link_2'>
-          <pose>1.34188 2.98501 0.08 0 -0 -0.094031</pose>
+          <pose>1.34188 2.82376 0.08 0 -0 -0.094031</pose>
           <velocity>0 0 0 0 -0 0</velocity>
-          <acceleration>-0 0 0 0 -0 0</acceleration>
-          <wrench>-0 0 0 0 -0 0</wrench>
+          <acceleration>-0 0 -0 -0 -0 -0</acceleration>
+          <wrench>-0 0 -0 0 -0 0</wrench>
         </link>
       </model>
       <light name='sun'>

@@ -189,7 +189,7 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 			self.cam = np.memmap(self.cam_frame_path, dtype=np.uint8, mode='r')
 		if update:
 			frame = QPixmap.fromImage(QImage(self.cam, CONFIG['cam_shape'][0], CONFIG['cam_shape'][1], self.cam_stride, QImage.Format_RGB888))
-			self.ui.labelCam.setPixmap(frame)
+			self.ui.labelCam.setPixmap(frame.scaled(160, 120))
 	# --------------------------------------------
 
 	# -------------- get_path_thread --------------

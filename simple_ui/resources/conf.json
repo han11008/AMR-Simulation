@@ -9,8 +9,8 @@
         0.0
     ],
     "cam_shape": [
-        160,
-        120,
+        640,
+        480,
         3
     ],
     "cur_pos_icon": "resources/pin.png",
@@ -35,41 +35,41 @@
             0.0
         ],
         [
-            1.275,
-            3.425
+            1.39,
+            3.36
         ],
         [
-            1.375,
-            0.4
+            1.425,
+            0.525
         ],
         [
-            -0.175,
-            3.325
+            -0.125,
+            3.1
         ]
     ],
     "map_origin_point": [
-        63,
-        321
+        59,
+        309
     ],
     "display_stops": [
         [
-            63,
-            321,
+            59,
+            309,
             "resources/left_top.png"
         ],
         [
-            165,
+            162,
             47,
             "resources/left_top.png"
         ],
         [
             173,
-            289,
+            267,
             "resources/left_top.png"
         ],
         [
             49,
-            55,
+            61,
             "resources/left_top.png"
         ]
     ]

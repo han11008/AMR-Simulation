@@ -246,7 +246,7 @@ class CamUpdaterThread(QThread):
 
 		self.node = Node(f'cam_viewer_{os.getpid()}')
 		qos_profile = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
-		self.node.create_subscription(Image, '/image_raw', self.transToNumpyArr, qos_profile)
+		self.node.create_subscription(Image, 'image_raw', self.transToNumpyArr, qos_profile)
 
 	def run(self):
 		self.executor = SingleThreadedExecutor()
@@ -281,8 +281,7 @@ class PathUpdaterThread(QThread):
 		self.has_task = False
 
 		self.node = Node(f'path_viewer_{os.getpid()}')
-		qos_profile = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
-		self.node.create_subscription(Path, '/plan', self.recvPath, qos_profile)
+		self.node.create_subscription(Path, 'plan', self.recvPath, 10)
 
 	@Slot(int, int, int, int, float)
 	def editParam(self, map_ori_x, map_ori_y, map_img_w, map_img_h, map_resolution):

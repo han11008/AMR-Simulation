@@ -9,6 +9,7 @@ from action_msgs.srv import CancelGoal
 from nav2_msgs.action import NavigateToPose
 from geometry_msgs.msg import PoseStamped
 from std_msgs.msg import String
+from std_srvs.srv import Empty
 from task_msgs.srv import TaskRequest, CancelRequest
 
 CHECK_NAV2_PERIOD = 8.0
@@ -16,10 +17,17 @@ CHECK_NAV2_PERIOD = 8.0
 class GoalSender(Node):
 	def __init__(self):
 		super().__init__('navigation_requester')
-		nav2_cbg = MutuallyExclusiveCallbackGroup()
+
+		self.declare_parameter('use_depth_camera', False)
+		self.use_depth_camera = self.get_parameter('use_depth_camera').get_parameter_value().bool_value
+
+		task_cbg = MutuallyExclusiveCallbackGroup()
+
+		self.pointcloud_cleaner = self.create_client(Empty, 'rtabmap/reset', callback_group=task_cbg)
+
 		qos = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
-		self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose', callback_group=nav2_cbg, feedback_sub_qos_profile=qos)
-		self.nav_cancel_requester = self.create_client(CancelGoal, 'navigate_to_pose/_action/cancel_goal', callback_group=nav2_cbg)
+		self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose', callback_group=task_cbg, feedback_sub_qos_profile=qos)
+		self.nav_cancel_requester = self.create_client(CancelGoal, 'navigate_to_pose/_action/cancel_goal', callback_group=task_cbg)
 
 		self.nav2_alive = False # Whether receive feedback from bt_navigator
 		self.prev_goal_msg = None # Prevent sending repeated goals
@@ -29,15 +37,13 @@ class GoalSender(Node):
 		self.goal_handle = None
 		self.end_succ = True # Determine the task is cancelled or succeeded
 
-		cmd_cbg = MutuallyExclusiveCallbackGroup()
-		self.cmd_listener = self.create_service(TaskRequest, 'nav_goals', self.arrangeTasks, callback_group=cmd_cbg)
-		self.cancel_listener = self.create_service(CancelRequest, 'nav_cancel', self.cancelTasks, callback_group=cmd_cbg)
+		self.cmd_listener = self.create_service(TaskRequest, 'nav_goals', self.arrangeTasks, callback_group=task_cbg)
+		self.cancel_listener = self.create_service(CancelRequest, 'nav_cancel', self.cancelTasks, callback_group=task_cbg)
 
 		self.feedback = String()
-		self.nav_feedback_reporter = self.create_publisher(String, 'nav_feedback', 1, callback_group=cmd_cbg)
+		self.nav_feedback_reporter = self.create_publisher(String, 'nav_feedback', 1, callback_group=task_cbg)
 
-		wait_cbg = MutuallyExclusiveCallbackGroup()
-		self.wait_clear_timer = self.create_timer(1.0, self._assignGoals, callback_group=wait_cbg)
+		self.wait_clear_timer = self.create_timer(1.0, self._assignGoals, callback_group=task_cbg)
 		timer_cbg = MutuallyExclusiveCallbackGroup()
 		self.check_nav2_timer = self.create_timer(CHECK_NAV2_PERIOD, self._checkNav2Callback, callback_group=timer_cbg)
 
@@ -70,7 +76,17 @@ class GoalSender(Node):
 					return
 			self._publishFeedback('Sending cancel request...')
 			self.goals = []
-			_ = self.nav_cancel_requester.call(CancelGoal.Request())
+			_ = self.nav_cancel_requester.call_async(CancelGoal.Request())
+
+	def _cleanPointCloud(self):
+		count = 0
+		while not self.pointcloud_cleaner.wait_for_service(timeout_sec=1.5):
+			count += 1
+			if count >= 5:
+				self._publishFeedback('Unable to clean up point cloud')
+				return
+		self._publishFeedback('Cleaning up point cloud')
+		_ = self.pointcloud_cleaner.call_async(Empty.Request())
 
 	def _assignGoals(self):
 		if self.goal_handle is None and self.preempt_goals:
@@ -95,6 +111,10 @@ class GoalSender(Node):
 
 	def _sendGoal(self):
 		if len(self.goals) > 0:
+			# If there are obstacles below the lidar's scan plane near the previous destination and the depth camera does not detect them instantly, it might cause collision
+#			if self.use_depth_camera:
+#				self._cleanPointCloud()
+
 			nav_req = NavigateToPose.Goal()
 			nav_req.pose = self.goals.pop(0)
 			if len(self.goals) == 0:
@@ -131,10 +151,6 @@ class GoalSender(Node):
 
 	def _feedbackCallback(self, msg):
 		self.nav2_alive = True
-		if msg.feedback.number_of_recoveries > 13:
-			self._publishFeedback('Navigation task is aborting')
-			self._sendCancelRequest()
-			return
 #		cur_x = msg.feedback.current_pose.pose.position.x
 #		cur_y = msg.feedback.current_pose.pose.position.y
 		self._publishFeedback(f'Estimated time remaining: {msg.feedback.estimated_time_remaining.sec}.{msg.feedback.estimated_time_remaining.nanosec} s; Recoveries: {msg.feedback.number_of_recoveries}; Current goal: {self.cur_goal}')

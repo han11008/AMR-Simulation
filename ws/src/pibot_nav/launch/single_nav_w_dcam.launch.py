@@ -35,7 +35,6 @@ def generate_launch_description():
 
 	rtab_param = RewrittenYaml(
 		source_file = os.path.join(pkg_share, 'param/rtab_params.yaml'),
-		root_key = bot_name,
 		param_rewrites = {'use_sim_time': use_sim_time},
 		convert_types = False
 	)
@@ -50,14 +49,12 @@ def generate_launch_description():
 
 	nav2_param = RewrittenYaml(
 		source_file = os.path.join(pkg_share, 'param/nav2_params_dcam.yaml'),
-		root_key = bot_name,
 		param_rewrites = {'default_nav_to_pose_bt_xml': bt_path,
 				'use_sim_time': use_sim_time},
 		convert_types = True
 	)
 	planner_w_keepout_param = RewrittenYaml(
 		source_file = os.path.join(pkg_share, 'param/planner_w_keepout.yaml'),
-		root_key = bot_name,
 		param_rewrites = {'use_sim_time': use_sim_time},
 		convert_types = True
 	)
@@ -76,7 +73,7 @@ def generate_launch_description():
 		Node(
 			package = 'gazebo_ros',
 			executable = 'spawn_entity.py',
-			arguments = f'-entity robot -file {robot_path} -entity {bot_name} -robot_namespace {bot_name} -x 0.0 -y 0.0'.split(' ')
+			arguments = f'-entity robot -file {robot_path} -entity {bot_name} -x 0.0 -y 0.0'.split(' ')
 		)
 	)
 
@@ -86,7 +83,6 @@ def generate_launch_description():
 			executable = 'robot_state_publisher',
 			arguments = [robot_path],
 			parameters = [{'use_sim_time': use_sim_time}],
-			namespace = bot_name,
 			remappings = remappings
 		)
 	)
@@ -96,7 +92,7 @@ def generate_launch_description():
 			package = pkg_name,
 			executable = 'navigator_client',
 			name = 'navigator_client',
-			namespace = bot_name,
+			parameters = [{'use_depth_camera': True}],
 			remappings = remappings,
 			output = 'screen'
 		)
@@ -107,7 +103,6 @@ def generate_launch_description():
 			package = pkg_name,
 			executable = 'collision_avoidance',
 			name = 'collision_avoidance',
-			namespace = bot_name,
 			remappings = remappings,
 		        output = 'screen'
 		)
@@ -116,16 +111,14 @@ def generate_launch_description():
 
 	# ======================== map server =========================
 	ld.add_action(GroupAction(actions=[
-		PushRosNamespace(namespace=bot_name),
-
 		Node(
 			package = 'rtabmap_slam',
 			executable = 'rtabmap',
 			name = 'rtabmap',
-			arguments = ['--delete_db_on_start'],
+			arguments = ['--delete_db_on_start', '--ros-args', '--log-level', 'error'],
 			parameters = [rtab_param],
 			remappings = remappings + [
-				('rgb/image', 'color/image_raw'), ('rgb/camera_info', 'color/camera_info'),
+				('rgb/image', 'image_raw'), ('rgb/camera_info', 'camera_info'),
 				('depth/image', 'depth/image_raw'),
 				('map', 'rtabmap_map')
 			]
@@ -133,8 +126,6 @@ def generate_launch_description():
 	]))
 
 	ld.add_action(GroupAction(actions=[
-			PushRosNamespace(namespace=bot_name),
-
 			Node(
 				condition = IfCondition(PythonExpression(['"', keepout_map_path,  '" == ""'])),
 				package = 'nav2_lifecycle_manager',
@@ -229,10 +220,7 @@ def generate_launch_description():
 	
 	# ======================== Nav2 stack =========================
 	ld.add_action(GroupAction(actions=[
-		PushRosNamespace(namespace=bot_name),
-		SetRemap(src=['/scan'], dst=['/', bot_name, '/scan']),
-		SetRemap(src=['/cloud_obstacles'], dst=['/', bot_name, '/cloud_obstacles']),
-		SetRemap(src=['/modified_map'], dst=['/', bot_name, '/map']),
+		SetRemap(src=['/modified_map'], dst=['/map']),
 
 		Node(
 			package = 'nav2_lifecycle_manager',
@@ -347,7 +335,6 @@ def generate_launch_description():
 			name = 'rviz2',
 			arguments = ['-d', rviz_config_path, '--ros-args', '--log-level', 'error'],
 			parameters = [{'use_sim_time': use_sim_time}],
-			namespace = bot_name,
 			remappings = remappings + [('/goal_pose', 'goal_pose'), ('/clicked_point', 'clicked_point'), ('/initialpose', 'initialpose')]
 		)
 	)
