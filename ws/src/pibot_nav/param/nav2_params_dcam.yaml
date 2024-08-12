@@ -371,7 +371,7 @@ collision_detector:
     pointcloud:
       enabled: True
       type: pointcloud
-      topic: cloud_obstacle
+      topic: cloud_obstacles
       min_height: 0.01
       max_height: 0.5
       source_timeout: 0.0
