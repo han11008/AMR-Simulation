@@ -29,6 +29,11 @@ def generate_launch_description():
 
 	# ======================== PARAMETERS =========================
 	bot_name = 'amr'
+	bot_pose = {
+		'x': 0.0,
+		'y': 2.5,
+		'yaw': 0.7
+	}
 
 	robot_path = os.path.join(pkg_share, 'urdf/bot_w_dcam.urdf')
 	world_path = os.path.join(pkg_share, 'world/test_low_obstacles.sdf')
@@ -37,6 +42,11 @@ def generate_launch_description():
 		source_file = os.path.join(pkg_share, 'param/rtab_params.yaml'),
 		param_rewrites = {'use_sim_time': use_sim_time},
 		convert_types = False
+	)
+	octo_param = RewrittenYaml(
+		source_file = os.path.join(pkg_share, 'param/octo_params.yaml'),
+		param_rewrites = {'use_sim_time': use_sim_time},
+		convert_types = True
 	)
 
 	bt_path = os.path.join(pkg_share, 'bt/nav2pose_replan_invalid.xml')
@@ -73,7 +83,7 @@ def generate_launch_description():
 		Node(
 			package = 'gazebo_ros',
 			executable = 'spawn_entity.py',
-			arguments = f'-entity robot -file {robot_path} -entity {bot_name} -x 0.0 -y 0.0'.split(' ')
+			arguments = f'-entity robot -file {robot_path} -entity {bot_name} -x {bot_pose["x"]} -y {bot_pose["y"]} -Y {bot_pose["yaw"]}'.split(' ')
 		)
 	)
 
@@ -110,18 +120,37 @@ def generate_launch_description():
 	# =============================================================
 
 	# ======================== map server =========================
+#	ld.add_action(GroupAction(actions=[
+#		Node(
+#			package = 'rtabmap_slam',
+#			executable = 'rtabmap',
+#			name = 'rtabmap',
+#			arguments = ['--delete_db_on_start', '--ros-args', '--log-level', 'error'],
+#			parameters = [rtab_param],
+#			remappings = remappings + [
+#				('rgb/image', 'image_raw'), ('rgb/camera_info', 'camera_info'),
+#				('depth/image', 'depth/image_raw'),
+#				('map', 'rtabmap_map')
+#			]
+#		)
+#	]))
+
 	ld.add_action(GroupAction(actions=[
 		Node(
-			package = 'rtabmap_slam',
-			executable = 'rtabmap',
-			name = 'rtabmap',
-			arguments = ['--delete_db_on_start', '--ros-args', '--log-level', 'error'],
-			parameters = [rtab_param],
+			package = 'octomap_server',
+			executable = 'octomap_server_node',
+			name = 'octomap_server',
+			parameters = [octo_param],
 			remappings = remappings + [
-				('rgb/image', 'image_raw'), ('rgb/camera_info', 'camera_info'),
-				('depth/image', 'depth/image_raw'),
-				('map', 'rtabmap_map')
+				('octomap_point_cloud_centers', 'cloud_obstacles'),
+				('cloud_in', 'depth/points')
 			]
+		),
+
+		Node(
+			package = pkg_name,
+			executable = 'octomap_reset',
+			name = 'octomap_reset'
 		)
 	]))
 
