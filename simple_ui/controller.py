@@ -2,7 +2,7 @@ from PySide2 import QtWidgets, QtCore
 from PySide2.QtWidgets import QPushButton, QButtonGroup, QLabel, QMessageBox
 from PySide2.QtCore import QSize, QRect, Qt, QThread, QObject, Signal, Slot, qDebug
 from PySide2.QtGui import QPixmap, QImage
-import os, subprocess, json
+import os, subprocess, json, cv2
 import numpy as np
 from time import time, sleep
 from select import select
@@ -102,14 +102,17 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 
 		# Create a label with transparent background pointing to where the AMR is
 		self.map_pos_label = QLabel(self.ui.widgetMap)
-		pin_img = QPixmap(CONFIG['cur_pos_icon'])
-		self.pin_img_mask = pin_img.mask()
-		self.map_pos_label.setPixmap(pin_img)
-		self.map_pos_label.setMask(self.pin_img_mask)
+		pin_ori_img = cv2.imread(CONFIG['cur_pos_icon'], cv2.IMREAD_UNCHANGED)
+		self.pin_img = pin_ori_img
+		if CONFIG['map_orientation'] == ORIENTATION['CLOCKWISE90']:
+			self.pin_img = cv2.rotate(pin_ori_img, cv2.ROTATE_90_CLOCKWISE)
+		elif CONFIG['map_orientation'] == ORIENTATION['CLOCKWISE180']:
+			self.pin_img = cv2.rotate(pin_ori_img, cv2.ROTATE_180)
+		elif CONFIG['map_orientation'] == ORIENTATION['CLOCKWISE270']:
+			self.pin_img = cv2.rotate(pin_ori_img, cv2.ROTATE_90_COUNTERCLOCKWISE)
 		self.pos_icon_offset_x = CONFIG['cur_pos_icon_shape'][0] // 2
-		self.pos_icon_offset_y = CONFIG['cur_pos_icon_shape'][1]
-		self.map_pos_label.setGeometry(QRect(self.map_ori_x - self.pos_icon_offset_x, self.map_ori_y - self.pos_icon_offset_y,
-			CONFIG['cur_pos_icon_shape'][0], CONFIG['cur_pos_icon_shape'][1]))
+		self.pos_icon_offset_y = CONFIG['cur_pos_icon_shape'][1] // 2
+		self.map_pos_label.setGeometry(QRect(CONFIG['map_image_shape'][0], CONFIG['map_image_shape'][1], CONFIG['cur_pos_icon_shape'][0], CONFIG['cur_pos_icon_shape'][1]))
 
 		# Create an image layer that marks the plan path
 		self.plan_path_label = QLabel(self.ui.widgetMap)
@@ -174,12 +177,22 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 			self.plan_path_label.setPixmap(QPixmap())
 
 	# -------------- get_pos_thread --------------
-	@Slot(float, float)
-	def updatePos(self, map_x, map_y):
+	@Slot(float, float, float)
+	def updatePos(self, map_x, map_y, orientation):
+		rot_mat = cv2.getRotationMatrix2D((self.pos_icon_offset_x, self.pos_icon_offset_y), orientation, 1.0)
+		pos_label_img = QPixmap.fromImage(
+			QImage(
+				cv2.warpAffine(self.pin_img, rot_mat, (CONFIG['cur_pos_icon_shape'][0], CONFIG['cur_pos_icon_shape'][1])),
+				CONFIG['cur_pos_icon_shape'][0], CONFIG['cur_pos_icon_shape'][1],
+				CONFIG['cur_pos_icon_shape'][0]*4, QImage.Format_ARGB32
+			)
+		)
+		self.map_pos_label.clear()
+		self.map_pos_label.setPixmap(pos_label_img)
+		self.map_pos_label.setMask(pos_label_img.mask())
 		map_x -= self.pos_icon_offset_x
 		map_y -= self.pos_icon_offset_y
 		self.map_pos_label.setGeometry(QRect(map_x, map_y, CONFIG['cur_pos_icon_shape'][0], CONFIG['cur_pos_icon_shape'][1]))
-		self.map_pos_label.setMask(self.pin_img_mask)
 	# --------------------------------------------
 
 	# -------------- get_cam_thread --------------
@@ -209,7 +222,6 @@ class MainWindow_controller(QtWidgets.QMainWindow):
 		self.ui.statusbar.showMessage(msg)
 		self.ui.buttonCancel.setEnabled(en_cancel)
 		self.planToCancel = False
-		self.get_path_thread.has_task = en_cancel
 		if not en_cancel:
 			self.plan_path_label.setPixmap(QPixmap())
 

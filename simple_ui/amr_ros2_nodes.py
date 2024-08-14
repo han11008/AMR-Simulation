@@ -9,7 +9,7 @@ from sensor_msgs.msg import Image
 from nav_msgs.msg import Path
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
-import os
+import os, math
 import numpy as np
 
 from PySide2.QtCore import QThread, Signal, Slot
@@ -174,7 +174,7 @@ class NavDaemonThread(QThread):
 		self.executor.shutdown()
 
 class PosUpdaterThread(QThread):
-	req_signal = Signal(float, float)
+	req_signal = Signal(float, float, float)
 
 	def __init__(self, map_ori_x, map_ori_y, phy_ori_x, phy_ori_y, map_resolution, map_orientation):
 		super().__init__()
@@ -217,11 +217,15 @@ class PosUpdaterThread(QThread):
 
 		return (map_x, map_y)
 
+	def getOrientation(self, qz, qw):
+		return math.degrees(math.atan2(2.0 * (qw * qz), 1.0 - 2.0 * (qz * qz)))
+
 	def reqTF(self):
 		try:
 			tf = self.node.tf_buffer.lookup_transform('map', 'base_footprint', rclpy.time.Time())
 			x, y = self.phyPosToMap(tf.transform.translation.x, tf.transform.translation.y)
-			self.req_signal.emit(x, y)
+			yaw = self.getOrientation(tf.transform.rotation.z, tf.transform.rotation.w)
+			self.req_signal.emit(x, y, yaw)
 		except:
 			pass
 
@@ -278,7 +282,6 @@ class PathUpdaterThread(QThread):
 		self.map_img_row = self.map_img_w * 4
 		self.map_resolution = map_resolution
 		self.map_orientation = map_orientation
-		self.has_task = False
 
 		self.node = Node(f'path_viewer_{os.getpid()}')
 		self.node.create_subscription(Path, 'plan', self.recvPath, 10)
@@ -318,15 +321,14 @@ class PathUpdaterThread(QThread):
 
 	def recvPath(self, msg):
 		path_img = np.zeros((self.map_img_h, self.map_img_w, 4), dtype=np.uint8)
-		if self.has_task:
-			for pose_stamped in msg.poses:
-				pose = pose_stamped.pose
-				x, y = self.phyPosToMap(pose.position.x, pose.position.y)
-				l = max(0, x-3)
-				r = min(self.map_img_w, x+3)
-				t = max(0, y-3)
-				b = min(self.map_img_h, y+3)
-				path_img[t:b+1, l:r+1, :] = [255, 128, 0, 200]
+		for pose_stamped in msg.poses:
+			pose = pose_stamped.pose
+			x, y = self.phyPosToMap(pose.position.x, pose.position.y)
+			l = max(0, x-3)
+			r = min(self.map_img_w, x+3)
+			t = max(0, y-3)
+			b = min(self.map_img_h, y+3)
+			path_img[t:b+1, l:r+1, :] = [255, 128, 0, 100]
 		self.req_signal.emit(self.arrayToPixmap(path_img))
 
 	def run(self):
