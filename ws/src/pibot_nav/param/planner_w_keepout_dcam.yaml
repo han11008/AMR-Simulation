@@ -23,6 +23,7 @@ global_costmap:
         observation_sources: scan pointcloud
         scan:
           topic: /scan
+          sensor_frame: laser_link
           max_obstacle_height: 2.0
           min_obstacle_height: 0.0
           clearing: True
@@ -35,7 +36,7 @@ global_costmap:
           source_timeout: 0.0
         pointcloud:
           topic: /cloud_obstacles
-          sensor_frame: depth_optical_frame
+          sensor_frame: camera_link
           max_obstacle_height: 0.5
           min_obstacle_height: 0.01
           clearing: True

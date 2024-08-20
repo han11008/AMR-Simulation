@@ -142,15 +142,16 @@ def generate_launch_description():
 			name = 'octomap_server',
 			parameters = [octo_param],
 			remappings = remappings + [
-				('octomap_point_cloud_centers', 'cloud_obstacles'),
+				('octomap_point_cloud_centers', 'cloud_map'),
 				('cloud_in', 'depth/points')
 			]
 		),
 
 		Node(
 			package = pkg_name,
-			executable = 'octomap_reset',
-			name = 'octomap_reset'
+			executable = 'obstacle_map',
+			name = 'obstacle_map',
+			parameters = [{'use_sim_time': use_sim_time}]
 		)
 	]))
 

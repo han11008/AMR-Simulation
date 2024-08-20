@@ -23,7 +23,7 @@ class GoalSender(Node):
 
 		task_cbg = MutuallyExclusiveCallbackGroup()
 
-		self.pointcloud_cleaner = self.create_client(Empty, 'rtabmap/reset', callback_group=task_cbg)
+		self.pointcloud_cleaner = self.create_client(Empty, 'clear_cloud_obstacles', callback_group=task_cbg)
 
 		qos = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
 		self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose', callback_group=task_cbg, feedback_sub_qos_profile=qos)
@@ -146,6 +146,7 @@ class GoalSender(Node):
 		self.goal_handle = None
 		self.prev_goal_msg = None
 		self.cur_goal = None
+		self._cleanPointCloud()
 		if self.goals:
 			self._sendGoal()
 
@@ -165,7 +166,7 @@ class GoalSender(Node):
 	def _publishFeedback(self, log):
 		self.feedback.data = log
 		self.nav_feedback_reporter.publish(self.feedback)
-		self.get_logger().info(self.feedback.data)
+#		self.get_logger().info(self.feedback.data)
 
 def main(args=None):
 	rclpy.init()

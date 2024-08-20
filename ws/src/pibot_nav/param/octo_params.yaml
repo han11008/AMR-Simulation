@@ -3,4 +3,11 @@
     use_sim_time: True
     base_frame_id: base_footprint
     frame_id: map
+    latch: False
     point_cloud_min_z: 0.01
+    sensor_model:
+      hit: 0.7
+      miss: 0.4
+      max: 0.97
+      min: 0.12
+      max_range: 1.5

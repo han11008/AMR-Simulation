@@ -40,7 +40,7 @@ setup(
 		f'fleet_map_server = {package_name}.fleet_map_server:main',
 		f'task_server = {package_name}.task_server:main',
 		f'task_client = {package_name}.task_client:main',
-		f'octomap_reset = {package_name}.octomap_reset:main',
+		f'obstacle_map = {package_name}.obstacle_map:main',
         ],
     },
 )
