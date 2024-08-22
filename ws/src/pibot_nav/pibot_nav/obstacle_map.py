@@ -13,12 +13,15 @@ import numpy as np
 
 REQUEST_TF_PERIOD = 0.2
 OBSTACLE_MAX_DIST = 1.5
+RESUME_MIN_DIST = 1.0
 
 class ObstacleMap(Node):
 	def __init__(self):
 		super().__init__('obstacle_map_node')
 		map_cbg = MutuallyExclusiveCallbackGroup()
 		self.last_stop_pos = None
+		self.obstacle_points = None
+		self.cleaned = False
 		self.map_sub = self.create_subscription(PointCloud2, 'cloud_map', self.recvPointCloud, 1, callback_group=map_cbg)
 		self.map_pub = self.create_publisher(PointCloud2, 'cloud_obstacles', 1, callback_group=map_cbg)
 
@@ -40,39 +43,49 @@ class ObstacleMap(Node):
 			self.map_pub.publish(msg)
 		else:
 			points = read_points_numpy(msg)
-			dists = np.max(np.abs(np.vstack((points[:, 0] - self.pos[0], points[:, 1] - self.pos[1]))), axis=0)
-			obstacle_points = points[dists <= OBSTACLE_MAX_DIST]
+			if self.obstacle_points is None:
+				dists = np.max(np.abs(np.vstack((points[:, 0] - self.pos[0], points[:, 1] - self.pos[1]))), axis=0)
+				self.obstacle_points = points[dists <= OBSTACLE_MAX_DIST]
+			elif self.cleaned:
+				self.obstacle_points = np.vstack((points, self.obstacle_points))
+				self.cleaned = False
 
 			header = Header()
 			header.stamp = self.get_clock().now().to_msg()
 			header.frame_id = 'map'
-			obstacle_map = create_cloud_xyz32(header, obstacle_points)
+			obstacle_map = create_cloud_xyz32(header, self.obstacle_points)
 			self.map_pub.publish(obstacle_map)
-			if max(abs(self.last_stop_pos[0] - self.pos[0]), abs(self.last_stop_pos[1] - self.pos[1])) >= OBSTACLE_MAX_DIST:
+			if max(abs(self.last_stop_pos[0] - self.pos[0]), abs(self.last_stop_pos[1] - self.pos[1])) >= RESUME_MIN_DIST:
 				self.last_stop_pos = None
+				self.obstacle_points = None
 
 	def recvInitPose(self, msg):
-		self.clearMap(exec_twice=True)
+		self.clearMap()
 
 	def recvClearReq(self, req, res):
+		self.last_stop_pos = self.pos
 		self.clearMap()
 		return res
 
 	def clearMap(self, exec_twice=False):
-		self.last_stop_pos = self.pos
 		count = 0
 		while not self.octo_client.wait_for_service(timeout_sec=1.5):
 			count += 1
 			if count >= 5:
 				self.get_logger().warn('Octomap server has no response')
 				return
-		self.get_logger().info('Cleaning 3D map...')
+		self.get_logger().info('Cleaning global 3D map...')
 		future = self.octo_client.call_async(Empty.Request())
-		if exec_twice:
-			future.add_done_callback(self._cleanAgain)
+		future.add_done_callback(self._cleanAgain)
 
 	def _cleanAgain(self, future): # previous pointcloud data might be still retained
-		_ = self.octo_client.call_async(Empty.Request())
+		next_future = self.octo_client.call_async(Empty.Request())
+		next_future.add_done_callback(self._finishClean)
+
+	def _finishClean(self, future):
+		self.get_logger().info('Global 3D map is cleaned up')
+		if self.last_stop_pos is not None:
+			self.cleaned = True
 
 	def req_tf(self):
 		try:
