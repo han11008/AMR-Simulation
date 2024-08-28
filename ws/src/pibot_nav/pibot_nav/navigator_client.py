@@ -111,10 +111,6 @@ class GoalSender(Node):
 
 	def _sendGoal(self):
 		if len(self.goals) > 0:
-			# If there are obstacles below the lidar's scan plane near the previous destination and the depth camera does not detect them instantly, it might cause collision
-#			if self.use_depth_camera:
-#				self._cleanPointCloud()
-
 			nav_req = NavigateToPose.Goal()
 			nav_req.pose = self.goals.pop(0)
 			if len(self.goals) == 0:
@@ -146,7 +142,8 @@ class GoalSender(Node):
 		self.goal_handle = None
 		self.prev_goal_msg = None
 		self.cur_goal = None
-		self._cleanPointCloud()
+		if self.use_depth_camera:
+			self._cleanPointCloud()
 		if self.goals:
 			self._sendGoal()
 
