@@ -40,30 +40,6 @@ class CollisionAvoidance(Node):
 	def passCtrlCmd	(self, msg):
 		self.recv_cmd_time = time()
 		if not self.collision_detected:
-			if msg.linear.x != 0 or msg.angular.z != 0:
-				self.is_stop = False
-
-				vel_is_pos = (msg.linear.x >= 0)
-				if vel_is_pos:
-					vel_insuff = (LINEAR_THRES - msg.linear.x) / LINEAR_THRES
-				else:
-					vel_insuff = (LINEAR_THRES + msg.linear.x) / LINEAR_THRES
-
-				theta_is_pos = (msg.angular.z >= 0)
-				if theta_is_pos:
-					theta_insuff = (ANGULAR_THRES - msg.angular.z) / ANGULAR_THRES
-				else:
-					theta_insuff = (ANGULAR_THRES + msg.angular.z) / ANGULAR_THRES
-
-				if vel_insuff > 0 and theta_insuff > 0:
-					if vel_insuff < theta_insuff:
-						msg.linear.x = LINEAR_THRES if vel_is_pos else -LINEAR_THRES
-						msg.angular.z = 0.0
-					else:
-						msg.linear.x = 0.0
-						msg.angular.z = ANGULAR_THRES if theta_is_pos else -ANGULAR_THRES
-			else:
-				self.is_stop = True
 			self.twist_msg_val = (msg.linear.x, msg.angular.z)
 
 	def confCDState(self, msg):
@@ -71,7 +47,6 @@ class CollisionAvoidance(Node):
 			cd = dict(zip(msg.polygons, msg.detections))
 			if cd[CD_POLY['left_front']]:
 				self.collision_detected = True
-				self.is_stop = False
 				if cd[CD_POLY['left_back']] and cd[CD_POLY['right_back']]:
 					self.twist_msg_val = (0.0, 0.0)
 				elif cd[CD_POLY['left_back']]:
@@ -83,7 +58,6 @@ class CollisionAvoidance(Node):
 
 			elif cd[CD_POLY['right_front']]:
 				self.collision_detected = True
-				self.is_stop = False
 				if cd[CD_POLY['left_back']] and cd[CD_POLY['right_back']]:
 					self.twist_msg_val = (0.0, 0.0)
 				elif cd[CD_POLY['right_back']]:
@@ -95,7 +69,6 @@ class CollisionAvoidance(Node):
 
 			elif cd[CD_POLY['left_back']] or cd[CD_POLY['right_back']]:
 				self.collision_detected = True
-				self.is_stop = False
 				self.twist_msg_val = (SPEED['forward'], 0.0)
 
 			else:
@@ -104,13 +77,13 @@ class CollisionAvoidance(Node):
 		elif not self.is_stop:
 			self.twist_msg_val = (0.0, 0.0)
 			self.sendCmd()
-			self.is_stop = True
 
 	def sendCmd(self):
 		twist_msg = Twist()
 		twist_msg.linear.x = self.twist_msg_val[0]
 		twist_msg.angular.z = self.twist_msg_val[1]
 		self.motor_cmd_pub.publish(twist_msg)
+		self.is_stop = (self.twist_msg_val[0] == 0 and self.twist_msg_val[1] == 0)
 
 def main(args=None):
 	rclpy.init()
