@@ -6,6 +6,7 @@ source ~/dcam_ws/install/setup.bash
 colcon build
 
 echo 'export RMW_IMPLEMENTATION=rmw_fastrtps_cpp' >> install/setup.bash
+echo 'export GAZEBO_MODEL_PATH='$WORK_DIR'/src/pibot_nav/gz_models' >> install/setup.bash
 
 source install/setup.bash
 
